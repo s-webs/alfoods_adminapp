@@ -161,8 +161,14 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
         await widget.apiService.createProduct(data);
       }
       if (!mounted) return;
-      context.pop(true);
-    } catch (e) {
+      if (context.canPop()) {
+        context.pop(true);
+      } else {
+        context.go('/products');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('ProductForm save error: $e');
+      debugPrint(stackTrace.toString());
       if (!mounted) return;
       setState(() {
         _isSaving = false;
@@ -204,7 +210,11 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     try {
       await widget.apiService.deleteProduct(widget.productId!);
       if (!mounted) return;
-      context.pop(true);
+      if (context.canPop()) {
+        context.pop(true);
+      } else {
+        context.go('/products');
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -293,7 +303,13 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
               Text(_error!),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: () => context.pop(),
+                onPressed: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/products');
+                  }
+                },
                 child: const Text('Назад'),
               ),
             ],

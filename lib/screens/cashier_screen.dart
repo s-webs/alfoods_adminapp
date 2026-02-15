@@ -127,24 +127,14 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Future<void> _openAddProductDialog() async {
-    final result = await showDialog<Object>(
+    await showDialog<void>(
       context: context,
       builder: (ctx) => AddProductDialog(
         apiService: widget.apiService,
-        onAddProduct: (p) {
-          _addProduct(p);
-          Navigator.of(ctx).pop();
-        },
-        onAddSet: (s) {
-          _addSet(s);
-          Navigator.of(ctx).pop();
-        },
+        onAddProduct: (p) => _addProduct(p),
+        onAddSet: (s) => _addSet(s),
       ),
     );
-    if (result != null && mounted) {
-      if (result is Product) _addProduct(result);
-      if (result is ProductSet) _addSet(result);
-    }
   }
 
   Future<void> _openBarcodeScanner() async {

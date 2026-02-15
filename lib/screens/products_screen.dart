@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -29,7 +30,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
   String _searchQuery = '';
   final _searchController = TextEditingController();
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   String? _error;
+  int _currentPage = 1;
+  int _total = 0;
+  static const int _perPage = 20;
+  final ScrollController _scrollController = ScrollController();
+  Timer? _searchDebounce;
 
   static const int _allCategoriesId = -1;
 
@@ -37,13 +44,28 @@ class _ProductsScreenState extends State<ProductsScreen> {
   void initState() {
     super.initState();
     _load();
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
+
+  void _onScroll() {
+    if (_isLoadingMore || !_hasMore) return;
+    if (_products.length < _total &&
+        _scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200) {
+      _loadMore();
+    }
+  }
+
+  bool get _hasMore => (_currentPage * _perPage) < _total;
 
   Future<void> _openBarcodeScanner() async {
     final result = await Navigator.of(context).push<String>(
@@ -83,16 +105,21 @@ class _ProductsScreenState extends State<ProductsScreen> {
       });
     }
     try {
-      final products = await widget.apiService.getProducts(
+      final categories = await widget.apiService.getCategories();
+      final result = await widget.apiService.getProductsPaginated(
+        page: 1,
+        perPage: _perPage,
         categoryId: _selectedCategoryId == _allCategoriesId
             ? null
             : _selectedCategoryId,
+        search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
       );
-      final categories = await widget.apiService.getCategories();
       if (!mounted) return;
       setState(() {
-        _products = products;
         _categories = categories;
+        _products = result.data;
+        _total = result.total;
+        _currentPage = result.currentPage;
         _isLoading = false;
       });
     } catch (e) {
@@ -104,18 +131,32 @@ class _ProductsScreenState extends State<ProductsScreen> {
     }
   }
 
-  List<Product> get _filteredProducts {
-    final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return _products;
-    return _products.where((p) {
-      if (p.name.toLowerCase().contains(query)) return true;
-      if (p.barcode != null && p.barcode!.toLowerCase().contains(query)) {
-        return true;
-      }
-      if (p.id.toString().contains(query)) return true;
-      return false;
-    }).toList();
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final result = await widget.apiService.getProductsPaginated(
+        page: _currentPage + 1,
+        perPage: _perPage,
+        categoryId: _selectedCategoryId == _allCategoriesId
+            ? null
+            : _selectedCategoryId,
+        search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _products = [..._products, ...result.data];
+        _total = result.total;
+        _currentPage = result.currentPage;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoadingMore = false);
+    }
   }
+
+  List<Product> get _filteredProducts => _products;
 
   String _categoryName(int? categoryId) {
     if (categoryId == null) return '—';
@@ -148,7 +189,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => context.push('/products/${p.id}/edit'),
+        onTap: () async {
+          await context.push('/products/${p.id}/edit');
+          if (mounted) _load();
+        },
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -357,7 +401,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   ),
                   const SizedBox(width: 8),
                   FilledButton.icon(
-                    onPressed: () => context.push('/products/create'),
+                    onPressed: () async {
+                      await context.push('/products/create');
+                      if (mounted) _load();
+                    },
                     icon: const Icon(PhosphorIconsRegular.plus, size: 20),
                     label: const Text('Добавить'),
                   ),
@@ -378,7 +425,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         isDense: true,
                         border: const OutlineInputBorder(),
                       ),
-                      onChanged: (value) => setState(() => _searchQuery = value),
+                      onChanged: (value) {
+                        setState(() => _searchQuery = value);
+                        _searchDebounce?.cancel();
+                        _searchDebounce = Timer(
+                          const Duration(milliseconds: 400),
+                          () => _load(silent: false),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -469,12 +523,25 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       : RefreshIndicator(
                           onRefresh: _load,
                           child: ListView.builder(
+                            controller: _scrollController,
                             padding: const EdgeInsets.all(16),
-                            itemCount: (_filteredProducts.length + 1) ~/ 2,
+                            itemCount: (_filteredProducts.length + 1) ~/ 2 +
+                                (_isLoadingMore ? 1 : 0),
                             itemBuilder: (context, rowIndex) {
+                              final dataRowCount =
+                                  (_filteredProducts.length + 1) ~/ 2;
+                              if (rowIndex >= dataRowCount) {
+                                return const Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                );
+                              }
                               final leftIndex = rowIndex * 2;
                               final rightIndex = rowIndex * 2 + 1;
-                              final hasRight = rightIndex < _filteredProducts.length;
+                              final hasRight =
+                                  rightIndex < _filteredProducts.length;
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: IntrinsicHeight(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
@@ -26,27 +28,94 @@ class AddProductDialog extends StatefulWidget {
 class _AddProductDialogState extends State<AddProductDialog>
     with SingleTickerProviderStateMixin {
   List<Product> _products = [];
-  List<Product> _filteredProducts = [];
   List<ProductSet> _sets = [];
   List<ProductSet> _filteredSets = [];
   String _searchQuery = '';
   bool _isLoading = true;
+  bool _isLoadingMoreProducts = false;
   String? _error;
   final _searchController = TextEditingController();
   late TabController _tabController;
+  final ScrollController _productScrollController = ScrollController();
+  Timer? _searchDebounce;
+  int _productPage = 1;
+  int _productTotal = 0;
+  static const int _perPage = 20;
+
+  bool get _hasMoreProducts =>
+      (_productPage * _perPage) < _productTotal;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _load();
+    _productScrollController.addListener(_onProductScroll);
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _productScrollController.removeListener(_onProductScroll);
+    _productScrollController.dispose();
     _searchController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _onProductScroll() {
+    if (_isLoadingMoreProducts || !_hasMoreProducts) return;
+    if (_products.length < _productTotal &&
+        _productScrollController.position.pixels >=
+            _productScrollController.position.maxScrollExtent - 100) {
+      _loadMoreProducts();
+    }
+  }
+
+  Future<void> _loadProducts({bool reset = true}) async {
+    if (reset) {
+      setState(() {
+        _products = [];
+        _productPage = 1;
+        _productTotal = 0;
+      });
+    }
+    try {
+      final result = await widget.apiService.getProductsPaginated(
+        page: reset ? 1 : _productPage,
+        perPage: _perPage,
+        active: true,
+        search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _products = reset ? result.data : [..._products, ...result.data];
+        _productTotal = result.total;
+        _productPage = result.currentPage;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadMoreProducts() async {
+    if (_isLoadingMoreProducts || !_hasMoreProducts) return;
+    setState(() => _isLoadingMoreProducts = true);
+    try {
+      final result = await widget.apiService.getProductsPaginated(
+        page: _productPage + 1,
+        perPage: _perPage,
+        active: true,
+        search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _products = [..._products, ...result.data];
+        _productTotal = result.total;
+        _productPage = result.currentPage;
+        _isLoadingMoreProducts = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingMoreProducts = false);
+    }
   }
 
   Future<void> _load() async {
@@ -56,19 +125,24 @@ class _AddProductDialogState extends State<AddProductDialog>
     });
     try {
       final results = await Future.wait([
-        widget.apiService.getProducts(active: true),
         widget.apiService.getSets(active: true),
+        widget.apiService.getProductsPaginated(
+          page: 1,
+          perPage: _perPage,
+          active: true,
+          search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
+        ),
       ]);
-      final products = results[0] as List<Product>;
-      final sets = results[1] as List<ProductSet>;
-      final sortedProducts =
-          List<Product>.from(products)..sort((a, b) => a.name.compareTo(b.name));
+      if (!mounted) return;
+      final sets = results[0] as List<ProductSet>;
+      final prodResult = results[1] as PaginatedProducts;
       final sortedSets =
           List<ProductSet>.from(sets)..sort((a, b) => a.name.compareTo(b.name));
       setState(() {
-        _products = sortedProducts;
         _sets = sortedSets;
-        _filterProducts();
+        _products = prodResult.data;
+        _productTotal = prodResult.total;
+        _productPage = prodResult.currentPage;
         _filterSets();
         _isLoading = false;
       });
@@ -77,17 +151,6 @@ class _AddProductDialogState extends State<AddProductDialog>
         _error = 'Не удалось загрузить данные';
         _isLoading = false;
       });
-    }
-  }
-
-  void _filterProducts() {
-    final query = _searchQuery.toLowerCase().trim();
-    if (query.isEmpty) {
-      _filteredProducts = List.from(_products);
-    } else {
-      _filteredProducts = _products
-          .where((p) => p.name.toLowerCase().contains(query))
-          .toList();
     }
   }
 
@@ -102,11 +165,13 @@ class _AddProductDialogState extends State<AddProductDialog>
   }
 
   void _onSearchChanged(String value) {
-    setState(() {
-      _searchQuery = value;
-      _filterProducts();
-      _filterSets();
-    });
+    setState(() => _searchQuery = value);
+    _filterSets();
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _loadProducts(reset: true),
+    );
   }
 
   void _selectProduct(Product product) {
@@ -197,7 +262,7 @@ class _AddProductDialogState extends State<AddProductDialog>
   }
 
   Widget _buildProductList() {
-    if (_filteredProducts.isEmpty) {
+    if (!_isLoading && _products.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -217,10 +282,17 @@ class _AddProductDialogState extends State<AddProductDialog>
       );
     }
     return ListView.builder(
+      controller: _productScrollController,
       shrinkWrap: true,
-      itemCount: _filteredProducts.length,
+      itemCount: _products.length + (_isLoadingMoreProducts ? 1 : 0),
       itemBuilder: (context, index) {
-        final p = _filteredProducts[index];
+        if (index >= _products.length) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final p = _products[index];
         return ListTile(
           title: Text(p.name),
           subtitle: Text(

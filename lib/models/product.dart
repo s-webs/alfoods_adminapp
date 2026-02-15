@@ -51,9 +51,13 @@ class Product {
     final images = imagesRaw != null
         ? imagesRaw.map((e) => e.toString()).toList()
         : null;
+    final idRaw = json['id'];
+    final categoryIdRaw = json['category_id'];
     return Product(
-      id: json['id'] as int,
-      categoryId: json['category_id'] as int?,
+      id: idRaw is int ? idRaw : (idRaw as num).toInt(),
+      categoryId: categoryIdRaw == null
+          ? null
+          : (categoryIdRaw is int ? categoryIdRaw : (categoryIdRaw as num).toInt()),
       name: json['name'] as String,
       newName: json['new_name'] as String?,
       slug: json['slug'] as String? ?? '',

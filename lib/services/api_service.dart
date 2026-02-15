@@ -17,6 +17,23 @@ import '../models/shift.dart';
 import '../models/task.dart';
 import '../models/user.dart';
 
+class PaginatedProducts {
+  const PaginatedProducts({
+    required this.data,
+    required this.total,
+    required this.perPage,
+    required this.currentPage,
+  });
+
+  final List<Product> data;
+  final int total;
+  final int perPage;
+  final int currentPage;
+
+  bool get hasMore => (currentPage * perPage) < total;
+  int get nextPage => currentPage + 1;
+}
+
 class ApiService {
   ApiService(this._storage, this._apiClient);
 
@@ -216,13 +233,43 @@ class ApiService {
 
   Future<Product> createProduct(Map<String, dynamic> data) async {
     final response = await _apiClient.dio.post('api/products', data: data);
-    return Product.fromJson(response.data as Map<String, dynamic>);
+    return _parseProductResponse(response);
   }
 
   Future<Product> updateProduct(int id, Map<String, dynamic> data) async {
     final response =
         await _apiClient.dio.patch('api/products/$id', data: data);
-    return Product.fromJson(response.data as Map<String, dynamic>);
+    return _parseProductResponse(response);
+  }
+
+  Product _parseProductResponse(Response<dynamic> response) {
+    final statusCode = response.statusCode;
+    final data = response.data;
+    final isSuccess = statusCode != null && statusCode >= 200 && statusCode < 300;
+    try {
+      if (data is Map<String, dynamic>) {
+        return Product.fromJson(data);
+      }
+    } catch (_) {
+      if (isSuccess && data is Map && data['id'] != null && data['name'] != null) {
+        final id = data['id'];
+        final name = data['name'];
+        final price = (data['price'] is num)
+            ? (data['price'] as num).toDouble()
+            : 0.0;
+        return Product(
+          id: id is int ? id : (id as num).toInt(),
+          name: name is String ? name : name.toString(),
+          price: price,
+          slug: (data['slug'] as String?) ?? '',
+        );
+      }
+      rethrow;
+    }
+    throw DioException(
+      requestOptions: response.requestOptions,
+      error: 'Unexpected response format',
+    );
   }
 
   Future<void> deleteProduct(int id) async {
@@ -251,6 +298,51 @@ class ApiService {
     return list
         .map((e) => Product.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Пагинированная загрузка товаров. API возвращает { data, total, per_page, current_page }.
+  Future<PaginatedProducts> getProductsPaginated({
+    int page = 1,
+    int perPage = 20,
+    bool? active,
+    int? categoryId,
+    String? search,
+  }) async {
+    final queryParams = <String, dynamic>{
+      'per_page': perPage,
+      'page': page,
+    };
+    if (active != null) queryParams['active'] = active;
+    if (categoryId != null) queryParams['category_id'] = categoryId;
+    if (search != null && search.trim().isNotEmpty) {
+      queryParams['search'] = search.trim();
+    }
+    final response = await _apiClient.dio.get(
+      'api/products',
+      queryParameters: queryParams,
+    );
+    final data = response.data;
+    if (data is List<dynamic>) {
+      final list = data
+          .map((e) => Product.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return PaginatedProducts(
+        data: list,
+        total: list.length,
+        perPage: list.length,
+        currentPage: 1,
+      );
+    }
+    final map = data as Map<String, dynamic>;
+    final items = (map['data'] as List<dynamic>)
+        .map((e) => Product.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedProducts(
+      data: items,
+      total: map['total'] as int,
+      perPage: map['per_page'] as int,
+      currentPage: map['current_page'] as int,
+    );
   }
 
   /// Поиск товара по штрихкоду (для сканера). Возвращает null, если не найден.
