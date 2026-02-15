@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
+import 'image_optimizer.dart';
 import '../core/storage.dart';
 import '../models/category.dart';
 import '../models/cashier.dart';
@@ -125,11 +126,15 @@ class ApiService {
     await _apiClient.dio.delete('api/categories/$id');
   }
 
-  /// Загрузка изображения товара. Возвращает путь вида /files/products/xxx.jpg.
+  /// Загрузка изображения товара. Возвращает путь вида /files/products/xxx.webp.
+  /// Перед загрузкой изображение оптимизируется на клиенте (сжатие, WebP).
   Future<String> uploadProductImage(String filePath, {String? filename}) async {
     final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(filePath);
     final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(filePath, filename: name),
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(filePath, filename: name),
     });
     final response = await _apiClient.dio.post(
       'api/upload/product-image',
@@ -138,11 +143,15 @@ class ApiService {
     return response.data['path'] as String;
   }
 
-  /// Загрузка изображения категории. Возвращает путь вида /files/categories/xxx.jpg.
+  /// Загрузка изображения категории. Возвращает путь вида /files/categories/xxx.webp.
+  /// Перед загрузкой изображение оптимизируется на клиенте (сжатие, WebP).
   Future<String> uploadCategoryImage(String filePath, {String? filename}) async {
     final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(filePath);
     final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(filePath, filename: name),
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(filePath, filename: name),
     });
     final response = await _apiClient.dio.post(
       'api/upload/category-image',
@@ -151,11 +160,15 @@ class ApiService {
     return response.data['path'] as String;
   }
 
-  /// Загрузка изображения сета. Возвращает путь вида /files/sets/xxx.jpg.
+  /// Загрузка изображения сета. Возвращает путь вида /files/sets/xxx.webp.
+  /// Перед загрузкой изображение оптимизируется на клиенте (сжатие, WebP).
   Future<String> uploadSetImage(String filePath, {String? filename}) async {
     final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(filePath);
     final formData = FormData.fromMap({
-      'file': await MultipartFile.fromFile(filePath, filename: name),
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(filePath, filename: name),
     });
     final response = await _apiClient.dio.post(
       'api/upload/set-image',

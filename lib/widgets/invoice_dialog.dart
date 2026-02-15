@@ -332,7 +332,10 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Накладная (форма 3-2)'),
-      content: SizedBox(
+      content: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          SizedBox(
         width: 560,
         child: Form(
           key: _formKey,
@@ -602,6 +605,16 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
             ),
           ),
         ),
+        ),
+        if (_isGenerating) ...[
+          Positioned.fill(
+            child: Container(
+              color: Colors.black26,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        ],
+      ],
       ),
       actions: [
         TextButton(

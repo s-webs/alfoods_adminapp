@@ -38,6 +38,7 @@ class _CashierScreenState extends State<CashierScreen> {
   bool _isLoading = true;
   bool _isSelling = false;
   bool _isResetting = false;
+  bool _isSavingReceiptPdf = false;
   int? _editingPriceIndex;
   TextEditingController? _priceEditController;
   CashierState? _state;
@@ -257,6 +258,7 @@ class _CashierScreenState extends State<CashierScreen> {
       showToast(context, 'Нет позиций для чека');
       return;
     }
+    setState(() => _isSavingReceiptPdf = true);
     try {
       final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
         saleId: 0,
@@ -280,6 +282,8 @@ class _CashierScreenState extends State<CashierScreen> {
         context,
         'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
       );
+    } finally {
+      if (mounted) setState(() => _isSavingReceiptPdf = false);
     }
   }
 
@@ -395,9 +399,11 @@ class _CashierScreenState extends State<CashierScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Stack(
       children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -684,6 +690,12 @@ class _CashierScreenState extends State<CashierScreen> {
           ),
         ),
       ],
+    ),
+    if (_isSavingReceiptPdf) ...[
+      ModalBarrier(dismissible: false),
+      const Center(child: CircularProgressIndicator()),
+    ],
+  ],
     );
   }
 }

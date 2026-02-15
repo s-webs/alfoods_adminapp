@@ -49,6 +49,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
   int? _selectedShiftId;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isSavingReceiptPdf = false;
   String? _error;
   int? _editingNameIndex;
   int? _editingPriceIndex;
@@ -623,6 +624,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
       showToast(context, 'Нет позиций для сохранения');
       return;
     }
+    setState(() => _isSavingReceiptPdf = true);
     final cashiersMatch = _cashiers
         .where((c) => c.id == _selectedCashierId)
         .toList();
@@ -651,6 +653,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         context,
         'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
       );
+    } finally {
+      if (mounted) setState(() => _isSavingReceiptPdf = false);
     }
   }
 
@@ -697,7 +701,9 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
 
     final sale = _sale!;
     final isReturned = sale.isReturned;
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
@@ -1265,6 +1271,12 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
           ],
         ),
       ),
+        ),
+    if (_isSavingReceiptPdf) ...[
+          ModalBarrier(dismissible: false),
+          const Center(child: CircularProgressIndicator()),
+        ],
+      ],
     );
   }
 }

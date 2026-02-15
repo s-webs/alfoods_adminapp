@@ -124,6 +124,110 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return c?.name ?? '—';
   }
 
+  Widget _buildNoPhotoPlaceholder() {
+    return Container(
+      color: AppColors.muted.withValues(alpha: 0.2),
+      alignment: Alignment.center,
+      child: Text(
+        'Фото отсутствует',
+        style: TextStyle(
+          fontSize: 12,
+          color: AppColors.muted,
+        ),
+      ),
+    );
+  }
+
+  static const double _previewHeight = 96;
+
+  Widget _buildProductCard(Product p) {
+    final categoryName = _categoryName(p.categoryId);
+    final previewPath = p.images != null && p.images!.isNotEmpty
+        ? p.images!.first
+        : null;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.push('/products/${p.id}/edit'),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  height: _previewHeight,
+                  width: double.infinity,
+                  child: previewPath != null
+                      ? Image.network(
+                          widget.apiService.fileUrl(previewPath),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              _buildNoPhotoPlaceholder(),
+                        )
+                      : _buildNoPhotoPlaceholder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      p.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: p.isActive ? AppColors.accent : AppColors.danger,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${p.effectivePrice.toStringAsFixed(0)} ₸',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Остаток: ${_formatStock(p.stock)} ${p.unit == 'pcs' ? 'шт.' : 'кг'}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.muted,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                categoryName,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.muted,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _generateAndOpenPdf(
     Future<Uint8List> Function(List<Product>) buildPdf,
     String title,
@@ -364,86 +468,29 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         )
                       : RefreshIndicator(
                           onRefresh: _load,
-                          child: GridView.builder(
+                          child: ListView.builder(
                             padding: const EdgeInsets.all(16),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              childAspectRatio: 0.85,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                            ),
-                            itemCount: _filteredProducts.length,
-                            itemBuilder: (context, index) {
-                              final p = _filteredProducts[index];
-                              final categoryName =
-                                  _categoryName(p.categoryId);
-                              return Card(
-                                clipBehavior: Clip.antiAlias,
-                                child: InkWell(
-                                  onTap: () =>
-                                      context.push('/products/${p.id}/edit'),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                p.name,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 14,
-                                                ),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                            Container(
-                                              width: 10,
-                                              height: 10,
-                                              decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: p.isActive
-                                                    ? AppColors.accent
-                                                    : AppColors.danger,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          '${p.effectivePrice.toStringAsFixed(0)} ₸',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            color: AppColors.primary,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Остаток: ${_formatStock(p.stock)} ${p.unit == 'pcs' ? 'шт.' : 'кг'}',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: AppColors.muted,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          categoryName,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: AppColors.muted,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
+                            itemCount: (_filteredProducts.length + 1) ~/ 2,
+                            itemBuilder: (context, rowIndex) {
+                              final leftIndex = rowIndex * 2;
+                              final rightIndex = rowIndex * 2 + 1;
+                              final hasRight = rightIndex < _filteredProducts.length;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: IntrinsicHeight(
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(
+                                        child: _buildProductCard(_filteredProducts[leftIndex]),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: hasRight
+                                            ? _buildProductCard(_filteredProducts[rightIndex])
+                                            : const SizedBox.shrink(),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               );

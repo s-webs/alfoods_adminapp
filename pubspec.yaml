@@ -49,6 +49,7 @@ dependencies:
   path_provider: ^2.1.4
   flex_color_picker: ^3.8.0
   image_picker: ^1.0.7
+  flutter_image_compress: ^2.4.0
 
 dev_dependencies:
   flutter_test:
