@@ -1,4 +1,6 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/storage.dart';
@@ -50,7 +52,9 @@ class _SetFormScreenState extends State<SetFormScreen> {
 
   ProductSet? _set;
   List<_SetItem> _items = [];
+  List<String> _images = [];
   bool _isActive = true;
+  bool _isUploadingImages = false;
   bool _isLoading = true;
   bool _isSaving = false;
   String? _error;
@@ -95,6 +99,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
                 ),
               )
               .toList();
+          _images = List<String>.from(s.images ?? []);
           _isLoading = false;
         });
       } else {
@@ -183,6 +188,9 @@ class _SetFormScreenState extends State<SetFormScreen> {
       if (dp != null && dp > 0) {
         data['discount_price'] = dp;
       }
+      if (_images.isNotEmpty) {
+        data['images'] = _images;
+      }
       if (widget.mode == SetFormMode.edit && widget.setId != null) {
         await widget.apiService.updateSet(widget.setId!, data);
       } else {
@@ -238,6 +246,59 @@ class _SetFormScreenState extends State<SetFormScreen> {
         _error = 'Не удалось удалить';
       });
     }
+  }
+
+  Future<void> _pickAndUploadImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty || !mounted) return;
+    setState(() => _isUploadingImages = true);
+    try {
+      for (final f in result.files) {
+        final path = f.path;
+        if (path == null || path.isEmpty) continue;
+        final p = await widget.apiService.uploadSetImage(path, filename: f.name);
+        if (!mounted) return;
+        setState(() => _images.add(p));
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  void _removeSetImage(int index) {
+    setState(() => _images.removeAt(index));
+  }
+
+  Future<void> _pickAndUploadImageFromCamera() async {
+    final x = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (x == null || !mounted) return;
+    setState(() => _isUploadingImages = true);
+    try {
+      final p = await widget.apiService.uploadSetImage(
+        x.path,
+        filename: 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      if (!mounted) return;
+      setState(() => _images.add(p));
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  void _moveSetImage(int index, int delta) {
+    final newIndex = index + delta;
+    if (newIndex < 0 || newIndex >= _images.length) return;
+    setState(() {
+      final item = _images.removeAt(index);
+      _images.insert(newIndex, item);
+    });
   }
 
   @override
@@ -366,6 +427,97 @@ class _SetFormScreenState extends State<SetFormScreen> {
                       child: const Text('Сгенерировать'),
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text('Фотографии', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ..._images.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    final path = entry.value;
+                    return Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.muted),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(7),
+                            child: Image.network(
+                              path.startsWith('http') ? path : widget.apiService.fileUrl(path),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Icon(Icons.broken_image, color: AppColors.muted),
+                            ),
+                          ),
+                          Positioned(
+                            top: 2,
+                            right: 2,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (i > 0)
+                                  GestureDetector(
+                                    onTap: () => _moveSetImage(i, -1),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      color: Colors.black54,
+                                      child: const Icon(Icons.arrow_upward, size: 16, color: Colors.white),
+                                    ),
+                                  ),
+                                if (i < _images.length - 1)
+                                  GestureDetector(
+                                    onTap: () => _moveSetImage(i, 1),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      color: Colors.black54,
+                                      child: const Icon(Icons.arrow_downward, size: 16, color: Colors.white),
+                                    ),
+                                  ),
+                                GestureDetector(
+                                  onTap: () => _removeSetImage(i),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    color: Colors.black54,
+                                    child: const Icon(Icons.close, size: 16, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  if (!_isUploadingImages) ...[
+                    GestureDetector(
+                      onTap: _pickAndUploadImages,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.muted, style: BorderStyle.solid),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.add_photo_alternate, size: 32, color: AppColors.muted),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: _pickAndUploadImageFromCamera,
+                      icon: const Icon(Icons.camera_alt, size: 20),
+                      label: const Text('Камера'),
+                    ),
+                  ]
+                  else
+                    const SizedBox(width: 80, height: 80, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
                 ],
               ),
               const SizedBox(height: 24),

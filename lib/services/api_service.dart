@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
@@ -121,6 +123,69 @@ class ApiService {
 
   Future<void> deleteCategory(int id) async {
     await _apiClient.dio.delete('api/categories/$id');
+  }
+
+  /// Загрузка изображения товара. Возвращает путь вида /files/products/xxx.jpg.
+  Future<String> uploadProductImage(String filePath, {String? filename}) async {
+    final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: name),
+    });
+    final response = await _apiClient.dio.post(
+      'api/upload/product-image',
+      data: formData,
+    );
+    return response.data['path'] as String;
+  }
+
+  /// Загрузка изображения категории. Возвращает путь вида /files/categories/xxx.jpg.
+  Future<String> uploadCategoryImage(String filePath, {String? filename}) async {
+    final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: name),
+    });
+    final response = await _apiClient.dio.post(
+      'api/upload/category-image',
+      data: formData,
+    );
+    return response.data['path'] as String;
+  }
+
+  /// Загрузка изображения сета. Возвращает путь вида /files/sets/xxx.jpg.
+  Future<String> uploadSetImage(String filePath, {String? filename}) async {
+    final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: name),
+    });
+    final response = await _apiClient.dio.post(
+      'api/upload/set-image',
+      data: formData,
+    );
+    return response.data['path'] as String;
+  }
+
+  /// Загрузка PDF. Возвращает {path, url}.
+  Future<({String path, String url})> uploadPdf(
+    Uint8List bytes,
+    String filename,
+  ) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await _apiClient.dio.post(
+      'api/upload/pdf',
+      data: formData,
+    );
+    final data = response.data as Map<String, dynamic>;
+    return (path: data['path'] as String, url: data['url'] as String);
+  }
+
+  /// Сформировать полный URL по пути (например /files/products/xxx.jpg).
+  String fileUrl(String path) {
+    final base = _storage.baseUrl ?? '';
+    final url = base.endsWith('/') ? base : '$base/';
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return '$url$cleanPath';
   }
 
   Future<List<Category>> getCategories({bool? active}) async {

@@ -1,11 +1,16 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../core/theme.dart';
 import '../models/category.dart';
 import '../models/product.dart';
 import '../services/api_service.dart';
+import '../services/products_pdf_service.dart';
+import '../utils/toast.dart';
 import 'barcode_scanner_screen.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -119,6 +124,97 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return c?.name ?? '—';
   }
 
+  Future<void> _generateAndOpenPdf(
+    Future<Uint8List> Function(List<Product>) buildPdf,
+    String title,
+    List<Product> products,
+  ) async {
+    if (products.isEmpty) {
+      showToast(context, 'Нет товаров для генерации');
+      return;
+    }
+    try {
+      final bytes = await buildPdf(products);
+      final filename = '${title}_${DateTime.now().millisecondsSinceEpoch}.pdf'
+          .replaceAll(RegExp(r'\s+'), '_');
+      final path = await ProductsPdfService.saveToTempFile(bytes, filename);
+      if (!mounted) return;
+      final result = await OpenFilex.open(path);
+      if (result.type != ResultType.done && mounted) {
+        showToast(context, 'Не удалось открыть: ${result.message}');
+      }
+    } catch (e) {
+      if (mounted) {
+        showToast(context, 'Ошибка: $e');
+      }
+    }
+  }
+
+  Future<void> _showPdfMenu() async {
+    final fp = _filteredProducts;
+    if (fp.isEmpty) return;
+    final result = await showMenu<String>(
+      context: context,
+      position: const RelativeRect.fromLTRB(24, 100, 24, 0),
+      items: [
+        const PopupMenuItem(
+          value: 'price',
+          child: Row(
+            children: [
+              Icon(Icons.list_alt, size: 20),
+              SizedBox(width: 8),
+              Text('Прайс (название, цена)'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'stock',
+          child: Row(
+            children: [
+              Icon(Icons.inventory_2, size: 20),
+              SizedBox(width: 8),
+              Text('Остатки (заканчивающиеся)'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'revision',
+          child: Row(
+            children: [
+              Icon(Icons.assignment, size: 20),
+              SizedBox(width: 8),
+              Text('Ревизия'),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (result == null || !mounted) return;
+    switch (result) {
+      case 'price':
+        await _generateAndOpenPdf(
+          ProductsPdfService.buildPriceListPdf,
+          'Prais',
+          fp,
+        );
+        break;
+      case 'stock':
+        await _generateAndOpenPdf(
+          ProductsPdfService.buildStockPdf,
+          'Ostatki',
+          fp,
+        );
+        break;
+      case 'revision':
+        await _generateAndOpenPdf(
+          ProductsPdfService.buildRevisionPdf,
+          'Reviziya',
+          fp,
+        );
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -147,6 +243,15 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           ),
                     ),
                   ),
+                  Tooltip(
+                    message: 'Прайс, остатки, ревизия',
+                    child: OutlinedButton.icon(
+                      onPressed: _filteredProducts.isEmpty ? null : _showPdfMenu,
+                      icon: const Icon(PhosphorIconsRegular.filePdf, size: 20),
+                      label: const Text('PDF'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: () => context.push('/products/create'),
                     icon: const Icon(PhosphorIconsRegular.plus, size: 20),

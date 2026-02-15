@@ -1,4 +1,6 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/storage.dart';
@@ -44,11 +46,13 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
 
   Product? _product;
   List<Category> _categories = [];
+  List<String> _images = [];
   int? _selectedCategoryId;
   String _selectedUnit = 'pcs';
   bool _isActive = true;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isUploadingImages = false;
   String? _error;
 
   static const List<String> _units = ['pcs', 'g'];
@@ -96,6 +100,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
           _selectedCategoryId = p.categoryId;
           _selectedUnit = p.unit;
           _isActive = p.isActive;
+          _images = List<String>.from(p.images ?? []);
           _isLoading = false;
         });
       } else {
@@ -146,6 +151,9 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
       final dp = double.tryParse(_discountPriceController.text);
       if (dp != null && dp > 0) {
         data['discount_price'] = dp;
+      }
+      if (_images.isNotEmpty) {
+        data['images'] = _images;
       }
       if (widget.mode == ProductFormMode.edit && widget.productId != null) {
         await widget.apiService.updateProduct(widget.productId!, data);
@@ -204,6 +212,63 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
         _error = 'Не удалось удалить';
       });
     }
+  }
+
+  Future<void> _pickAndUploadImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty || !mounted) return;
+    setState(() => _isUploadingImages = true);
+    try {
+      for (final f in result.files) {
+        final path = f.path;
+        if (path == null || path.isEmpty) continue;
+        final p = await widget.apiService.uploadProductImage(path, filename: f.name);
+        if (!mounted) return;
+        setState(() => _images.add(p));
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() => _images.removeAt(index));
+  }
+
+  Future<void> _pickAndUploadImageFromCamera() async {
+    final x = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (x == null || !mounted) return;
+    setState(() => _isUploadingImages = true);
+    try {
+      final p = await widget.apiService.uploadProductImage(
+        x.path,
+        filename: 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      if (!mounted) return;
+      setState(() => _images.add(p));
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  void _moveImage(int index, int delta) {
+    final newIndex = index + delta;
+    if (newIndex < 0 || newIndex >= _images.length) return;
+    setState(() {
+      final item = _images.removeAt(index);
+      _images.insert(newIndex, item);
+    });
+  }
+
+  String _imageUrl(String path) {
+    return widget.apiService.fileUrl(path);
   }
 
   @override
@@ -374,6 +439,97 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Фотографии', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ..._images.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    final path = entry.value;
+                    return Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.muted),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(7),
+                            child: Image.network(
+                              path.startsWith('http') ? path : _imageUrl(path),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Icon(Icons.broken_image, color: AppColors.muted),
+                            ),
+                          ),
+                          Positioned(
+                            top: 2,
+                            right: 2,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (i > 0)
+                                  GestureDetector(
+                                    onTap: () => _moveImage(i, -1),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      color: Colors.black54,
+                                      child: const Icon(Icons.arrow_upward, size: 16, color: Colors.white),
+                                    ),
+                                  ),
+                                if (i < _images.length - 1)
+                                  GestureDetector(
+                                    onTap: () => _moveImage(i, 1),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      color: Colors.black54,
+                                      child: const Icon(Icons.arrow_downward, size: 16, color: Colors.white),
+                                    ),
+                                  ),
+                                GestureDetector(
+                                  onTap: () => _removeImage(i),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    color: Colors.black54,
+                                    child: const Icon(Icons.close, size: 16, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  if (!_isUploadingImages) ...[
+                    GestureDetector(
+                      onTap: _pickAndUploadImages,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.muted, style: BorderStyle.solid),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.add_photo_alternate, size: 32, color: AppColors.muted),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: _pickAndUploadImageFromCamera,
+                      icon: const Icon(Icons.camera_alt, size: 20),
+                      label: const Text('Камера'),
+                    ),
+                  ]
+                  else
+                    const SizedBox(width: 80, height: 80, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                ],
               ),
               const SizedBox(height: 16),
               Row(

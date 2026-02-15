@@ -1,5 +1,8 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../core/theme.dart';
 import '../models/category.dart';
@@ -30,6 +33,10 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
   final _slugController = TextEditingController();
 
   Category? _category;
+  Color? _colorFrom;
+  Color? _colorTo;
+  String? _image;
+  bool _isUploadingImage = false;
   bool _isLoading = true;
   bool _isSaving = false;
   String? _error;
@@ -51,6 +58,17 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
     super.dispose();
   }
 
+  static Color? _hexToColor(String? hex) {
+    if (hex == null || hex.isEmpty) return null;
+    final h = hex.startsWith('#') ? hex.substring(1) : hex;
+    if (h.length != 6) return null;
+    final v = int.tryParse(h, radix: 16);
+    return v != null ? Color(0xFF000000 | v) : null;
+  }
+
+  static String _colorToHex(Color c) =>
+      '#${c.red.toRadixString(16).padLeft(2, '0')}${c.green.toRadixString(16).padLeft(2, '0')}${c.blue.toRadixString(16).padLeft(2, '0')}';
+
   Future<void> _load() async {
     setState(() {
       _isLoading = true;
@@ -65,6 +83,9 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
           _category = cat;
           _nameController.text = cat.name;
           _slugController.text = cat.slug;
+          _image = cat.image;
+          _colorFrom = _hexToColor(cat.colorFrom);
+          _colorTo = _hexToColor(cat.colorTo);
           _isLoading = false;
         });
       } else {
@@ -100,13 +121,16 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
       _error = null;
     });
     try {
-      final data = {
+      final data = <String, dynamic>{
         'name': name,
         'slug': slug,
         'sort_order': _category?.sortOrder ?? 0,
         'parent_id': _category?.parentId,
         'is_active': _category?.isActive ?? true,
       };
+      if (_image != null && _image!.isNotEmpty) data['image'] = _image;
+      if (_colorFrom != null) data['color_from'] = _colorToHex(_colorFrom!);
+      if (_colorTo != null) data['color_to'] = _colorToHex(_colorTo!);
       if (widget.mode == CategoryFormMode.edit && widget.categoryId != null) {
         await widget.apiService.updateCategory(widget.categoryId!, data);
       } else {
@@ -163,6 +187,37 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
         _isSaving = false;
         _error = 'Не удалось удалить';
       });
+    }
+  }
+
+  Future<void> _pickAndUploadImage({bool useCamera = false}) async {
+    String? path;
+    String? filename;
+    if (useCamera) {
+      final x = await ImagePicker().pickImage(source: ImageSource.camera);
+      if (x == null || !mounted) return;
+      path = x.path;
+      filename = 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    } else {
+      final result = await FilePicker.platform.pickFiles(type: FileType.image);
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final f = result.files.first;
+      path = f.path;
+      filename = f.name;
+    }
+    if (path == null || path.isEmpty) return;
+    setState(() => _isUploadingImage = true);
+    try {
+      final p = await widget.apiService.uploadCategoryImage(path, filename: filename);
+      if (!mounted) return;
+      setState(() => _image = p);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка загрузки: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isUploadingImage = false);
     }
   }
 
@@ -243,6 +298,129 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
                 ),
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Обязательное поле' : null,
               ),
+              const SizedBox(height: 16),
+              const Text('Картинка', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (_image != null && _image!.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        _image!.startsWith('http') ? _image! : widget.apiService.fileUrl(_image!),
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(Icons.broken_image, color: AppColors.muted),
+                      ),
+                    ),
+                  const SizedBox(width: 12),
+                  if (!_isUploadingImage) ...[
+                    OutlinedButton.icon(
+                      onPressed: () => _pickAndUploadImage(useCamera: false),
+                      icon: const Icon(Icons.photo_library, size: 20),
+                      label: Text(_image != null && _image!.isNotEmpty ? 'Заменить' : 'Выбрать'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => _pickAndUploadImage(useCamera: true),
+                      icon: const Icon(Icons.camera_alt, size: 20),
+                      label: const Text('Камера'),
+                    ),
+                  ]
+                  else
+                    const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+                  if (_image != null && _image!.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () => setState(() => _image = null),
+                      icon: const Icon(Icons.clear, color: AppColors.danger),
+                      tooltip: 'Удалить картинку',
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text('Цвет от', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  Color currentColor = _colorFrom ?? Colors.green;
+                  final ok = await ColorPicker(
+                    color: currentColor,
+                    onColorChanged: (c) => currentColor = c,
+                  ).showPickerDialog(
+                    context,
+                    constraints: const BoxConstraints(maxWidth: 400, maxHeight: 500),
+                  );
+                  if (ok == true && mounted) setState(() => _colorFrom = currentColor);
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: _colorFrom ?? Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.muted),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _colorFrom != null ? _colorToHex(_colorFrom!) : 'Нажмите для выбора',
+                    style: TextStyle(
+                      color: _colorFrom != null && _colorFrom!.computeLuminance() < 0.5
+                          ? Colors.white
+                          : Colors.black87,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Цвет до', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () async {
+                  Color currentColor = _colorTo ?? Colors.green.shade700;
+                  final ok = await ColorPicker(
+                    color: currentColor,
+                    onColorChanged: (c) => currentColor = c,
+                  ).showPickerDialog(
+                    context,
+                    constraints: const BoxConstraints(maxWidth: 400, maxHeight: 500),
+                  );
+                  if (ok == true && mounted) setState(() => _colorTo = currentColor);
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: _colorTo ?? Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.muted),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _colorTo != null ? _colorToHex(_colorTo!) : 'Нажмите для выбора',
+                    style: TextStyle(
+                      color: _colorTo != null && _colorTo!.computeLuminance() < 0.5
+                          ? Colors.white
+                          : Colors.black87,
+                    ),
+                  ),
+                ),
+              ),
+              if (_colorFrom != null || _colorTo != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: TextButton(
+                    onPressed: () => setState(() {
+                      _colorFrom = null;
+                      _colorTo = null;
+                    }),
+                    child: const Text('Очистить цвета'),
+                  ),
+                ),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: _isSaving ? null : _save,

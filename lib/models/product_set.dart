@@ -41,6 +41,7 @@ class ProductSet {
   final bool isActive;
   final List<ProductSetItem> items;
   final Map<String, dynamic>? meta;
+  final List<String>? images;
 
   const ProductSet({
     required this.id,
@@ -52,6 +53,7 @@ class ProductSet {
     this.isActive = true,
     this.items = const [],
     this.meta,
+    this.images,
   });
 
   factory ProductSet.fromJson(Map<String, dynamic> json) {
@@ -69,6 +71,10 @@ class ProductSet {
     } else if (metaRaw is Map) {
       meta = Map<String, dynamic>.from(metaRaw as Map);
     }
+    final imagesRaw = json['images'] as List<dynamic>?;
+    final images = imagesRaw != null
+        ? imagesRaw.map((e) => e.toString()).toList()
+        : null;
 
     return ProductSet(
       id: json['id'] as int,
@@ -82,6 +88,7 @@ class ProductSet {
       isActive: json['is_active'] == null ? true : json['is_active'] as bool,
       items: items,
       meta: meta,
+      images: images,
     );
   }
 

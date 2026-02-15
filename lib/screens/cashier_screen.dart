@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -15,6 +14,7 @@ import '../services/receipt_pdf_service.dart';
 import '../state/cashier_state.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
+import '../widgets/pdf_share_dialog.dart';
 import '../widgets/invoice_dialog.dart';
 import 'barcode_scanner_screen.dart';
 
@@ -265,17 +265,15 @@ class _CashierScreenState extends State<CashierScreen> {
         total: _cashierState.cartTotal,
         dateTime: DateTime.now(),
       );
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Сохранить чек в PDF',
-        fileName: 'chek-${DateTime.now().millisecondsSinceEpoch}.pdf',
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        bytes: pdfBytes,
-      );
+      final filename =
+          'chek-${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final result = await widget.apiService.uploadPdf(pdfBytes, filename);
       if (!mounted) return;
-      if (path != null && path.isNotEmpty) {
-        showToast(context, 'Чек сохранён: $path');
-      }
+      showPdfShareDialog(
+        context,
+        url: result.url,
+        title: 'Чек',
+      );
     } catch (e) {
       if (!mounted) return;
       showToast(

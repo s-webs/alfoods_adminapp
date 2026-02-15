@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -21,6 +20,7 @@ import '../widgets/pay_debt_dialog.dart';
 import '../services/receipt_pdf_service.dart';
 import '../services/receipt_printer_service.dart';
 import '../utils/toast.dart';
+import '../widgets/pdf_share_dialog.dart';
 
 class SaleDetailScreen extends StatefulWidget {
   const SaleDetailScreen({
@@ -637,17 +637,14 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         total: _itemsTotal,
         dateTime: _sale?.createdAt ?? DateTime.now(),
       );
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Сохранить чек в PDF',
-        fileName: 'chek-${widget.saleId}.pdf',
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        bytes: pdfBytes,
-      );
+      final filename = 'chek-${widget.saleId}.pdf';
+      final result = await widget.apiService.uploadPdf(pdfBytes, filename);
       if (!mounted) return;
-      if (path != null && path.isNotEmpty) {
-        showToast(context, 'Чек сохранён: $path');
-      }
+      showPdfShareDialog(
+        context,
+        url: result.url,
+        title: 'Чек',
+      );
     } catch (e) {
       if (!mounted) return;
       showToast(

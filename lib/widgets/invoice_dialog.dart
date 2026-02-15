@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
@@ -11,8 +10,10 @@ import '../models/counterparty.dart';
 import '../services/api_service.dart';
 import '../services/invoice_pdf_service.dart';
 import '../utils/toast.dart';
+import 'pdf_share_dialog.dart';
 
 /// Модальное окно для заполнения данных накладной и генерации PDF.
+/// [context] — контекст вызова (используется для showPdfShareDialog после закрытия).
 /// [items] — позиции из корзины кассы или из продажи.
 /// [initialDocumentNumber] — начальный номер документа (опционально).
 /// [storage] — при наличии подставляются данные предпринимателя из настроек (название ИП, БИН, руководитель, адрес).
@@ -23,6 +24,7 @@ void showInvoiceDialog({
   String? initialDocumentNumber,
   Storage? storage,
 }) {
+  final parentContext = context;
   showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -31,6 +33,7 @@ void showInvoiceDialog({
       items: items,
       initialDocumentNumber: initialDocumentNumber,
       storage: storage,
+      parentContext: parentContext,
     ),
   );
 }
@@ -41,12 +44,14 @@ class _InvoiceDialog extends StatefulWidget {
     required this.items,
     this.initialDocumentNumber,
     this.storage,
+    required this.parentContext,
   });
 
   final ApiService apiService;
   final List<CartItem> items;
   final String? initialDocumentNumber;
   final Storage? storage;
+  final BuildContext parentContext;
 
   @override
   State<_InvoiceDialog> createState() => _InvoiceDialogState();
@@ -231,16 +236,17 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
       );
       final pdfBytes = await InvoicePdfService.buildPdf(invoiceData);
       if (!mounted) return;
-      final path = await FilePicker.platform.saveFile(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-        fileName:
-            'Накладная_${invoiceData.documentNumber}_${_documentDate.day.toString().padLeft(2, '0')}-${_documentDate.month.toString().padLeft(2, '0')}-${_documentDate.year}.pdf',
-        bytes: pdfBytes,
-      );
-      if (path != null && path.isNotEmpty && mounted) {
-        showToast(context, 'Накладная сохранена: $path');
-        Navigator.of(context).pop();
+      final filename =
+          'Nakladnaya_${invoiceData.documentNumber}_${_documentDate.day.toString().padLeft(2, '0')}-${_documentDate.month.toString().padLeft(2, '0')}-${_documentDate.year}.pdf';
+      final result = await widget.apiService.uploadPdf(pdfBytes, filename);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      if (widget.parentContext.mounted) {
+        showPdfShareDialog(
+          widget.parentContext,
+          url: result.url,
+          title: 'Накладная',
+        );
       }
     } catch (e) {
       if (mounted) {
