@@ -1,6 +1,6 @@
 import 'package:file_picker/file_picker.dart';
-import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -345,15 +345,35 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
               const SizedBox(height: 8),
               InkWell(
                 onTap: () async {
-                  Color currentColor = _colorFrom ?? Colors.green;
-                  final ok = await ColorPicker(
-                    color: currentColor,
-                    onColorChanged: (c) => currentColor = c,
-                  ).showPickerDialog(
-                    context,
-                    constraints: const BoxConstraints(maxWidth: 400, maxHeight: 500),
+                  Color pickerColor = _colorFrom ?? Colors.green;
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => StatefulBuilder(
+                      builder: (ctx2, setDialogState) => AlertDialog(
+                        title: const Text('Цвет от'),
+                        content: SingleChildScrollView(
+                          child: ColorPicker(
+                            pickerColor: pickerColor,
+                            onColorChanged: (c) {
+                              pickerColor = c;
+                              setDialogState(() {});
+                            },
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Отмена'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
-                  if (ok == true && mounted) setState(() => _colorFrom = currentColor);
+                  if (ok == true && mounted) setState(() => _colorFrom = pickerColor);
                 },
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
@@ -380,15 +400,35 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
               const SizedBox(height: 8),
               InkWell(
                 onTap: () async {
-                  Color currentColor = _colorTo ?? Colors.green.shade700;
-                  final ok = await ColorPicker(
-                    color: currentColor,
-                    onColorChanged: (c) => currentColor = c,
-                  ).showPickerDialog(
-                    context,
-                    constraints: const BoxConstraints(maxWidth: 400, maxHeight: 500),
+                  Color pickerColor = _colorTo ?? Colors.green.shade700;
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => StatefulBuilder(
+                      builder: (ctx2, setDialogState) => AlertDialog(
+                        title: const Text('Цвет до'),
+                        content: SingleChildScrollView(
+                          child: ColorPicker(
+                            pickerColor: pickerColor,
+                            onColorChanged: (c) {
+                              pickerColor = c;
+                              setDialogState(() {});
+                            },
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Отмена'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
-                  if (ok == true && mounted) setState(() => _colorTo = currentColor);
+                  if (ok == true && mounted) setState(() => _colorTo = pickerColor);
                 },
                 borderRadius: BorderRadius.circular(8),
                 child: Container(

@@ -31,6 +31,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   final _searchController = TextEditingController();
   bool _isLoading = true;
   bool _isLoadingMore = false;
+  bool _isGeneratingPdf = false;
   String? _error;
   int _currentPage = 1;
   int _total = 0;
@@ -272,11 +273,35 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
   }
 
+  /// Загружает все товары без фильтров для PDF.
+  Future<List<Product>> _loadAllProductsForPdf() async {
+    final all = <Product>[];
+    var page = 1;
+    while (true) {
+      final result = await widget.apiService.getProductsPaginated(
+        page: page,
+        perPage: _perPage,
+      );
+      all.addAll(result.data);
+      if ((result.currentPage * result.perPage) >= result.total) break;
+      page = result.currentPage + 1;
+    }
+    return all;
+  }
+
   Future<void> _generateAndOpenPdf(
     Future<Uint8List> Function(List<Product>) buildPdf,
     String title,
-    List<Product> products,
   ) async {
+    setState(() => _isGeneratingPdf = true);
+    List<Product>? products;
+    try {
+      products = await _loadAllProductsForPdf();
+      if (!mounted) return;
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки товаров: $e');
+      return;
+    }
     if (products.isEmpty) {
       showToast(context, 'Нет товаров для генерации');
       return;
@@ -295,12 +320,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
       if (mounted) {
         showToast(context, 'Ошибка: $e');
       }
+    } finally {
+      if (mounted) setState(() => _isGeneratingPdf = false);
     }
   }
 
   Future<void> _showPdfMenu() async {
-    final fp = _filteredProducts;
-    if (fp.isEmpty) return;
     final result = await showMenu<String>(
       context: context,
       position: const RelativeRect.fromLTRB(24, 100, 24, 0),
@@ -343,21 +368,18 @@ class _ProductsScreenState extends State<ProductsScreen> {
         await _generateAndOpenPdf(
           ProductsPdfService.buildPriceListPdf,
           'Prais',
-          fp,
         );
         break;
       case 'stock':
         await _generateAndOpenPdf(
           ProductsPdfService.buildStockPdf,
           'Ostatki',
-          fp,
         );
         break;
       case 'revision':
         await _generateAndOpenPdf(
           ProductsPdfService.buildRevisionPdf,
           'Reviziya',
-          fp,
         );
         break;
     }
@@ -365,7 +387,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Stack(
+      children: [
+        Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
@@ -394,7 +418,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   Tooltip(
                     message: 'Прайс, остатки, ревизия',
                     child: OutlinedButton.icon(
-                      onPressed: _filteredProducts.isEmpty ? null : _showPdfMenu,
+                      onPressed: (_filteredProducts.isEmpty || _isGeneratingPdf)
+                          ? null
+                          : _showPdfMenu,
                       icon: const Icon(PhosphorIconsRegular.filePdf, size: 20),
                       label: const Text('PDF'),
                     ),
@@ -565,6 +591,26 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           ),
                         ),
         ),
+      ],
+    ),
+        if (_isGeneratingPdf)
+          Positioned.fill(
+            child: ModalBarrier(
+              color: Colors.black26,
+              dismissible: false,
+            ),
+          ),
+        if (_isGeneratingPdf)
+          const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Загрузка товаров и формирование PDF…'),
+              ],
+            ),
+          ),
       ],
     );
   }

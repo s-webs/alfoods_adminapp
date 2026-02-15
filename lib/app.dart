@@ -8,6 +8,7 @@ import 'layouts/app_shell.dart';
 import 'screens/categories_screen.dart';
 import 'screens/category_form_screen.dart';
 import 'screens/cashier_screen.dart';
+import 'screens/dashboard_screen.dart';
 import 'screens/counterparties_screen.dart';
 import 'screens/counterparty_form_screen.dart';
 import 'screens/debtors_screen.dart';
@@ -58,7 +59,7 @@ class App extends StatelessWidget {
           return isLogin ? null : '/login';
         }
         if (isLogin) {
-          return '/categories';
+          return '/dashboard';
         }
         return null;
       },
@@ -79,7 +80,13 @@ class App extends StatelessWidget {
           routes: [
             GoRoute(
               path: '/',
-              redirect: (context, state) => '/categories',
+              redirect: (context, state) => '/dashboard',
+            ),
+            GoRoute(
+              path: '/dashboard',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: DashboardScreen(apiService: apiService),
+              ),
             ),
             GoRoute(
               path: '/cashier',

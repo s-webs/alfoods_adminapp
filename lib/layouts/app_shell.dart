@@ -76,6 +76,15 @@ class _AppShellState extends State<AppShell> {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       children: [
                         _NavItem(
+                          icon: PhosphorIconsRegular.chartLine,
+                          label: 'Дашборд',
+                          isSelected: location == '/dashboard',
+                          onTap: () {
+                            context.go('/dashboard');
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        _NavItem(
                           icon: PhosphorIconsRegular.cashRegister,
                           label: 'Касса',
                           isSelected: location == '/cashier',
