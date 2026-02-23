@@ -9,6 +9,7 @@ import '../models/category.dart';
 import '../models/cashier.dart';
 import '../models/counterparty.dart';
 import '../models/debt_payment.dart';
+import '../models/order.dart';
 import '../models/product.dart';
 import '../models/product_receipt.dart';
 import '../models/product_set.dart';
@@ -492,6 +493,98 @@ class ApiService {
 
   Future<void> deleteCounterparty(int id) async {
     await _apiClient.dio.delete('api/counterparties/$id');
+  }
+
+  // Online orders (website orders)
+  Future<PaginatedOrders> getOrders({
+    String? search,
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+    int? page,
+  }) async {
+    final queryParams = <String, dynamic>{};
+    if (search != null && search.trim().isNotEmpty) {
+      queryParams['search'] = search.trim();
+    }
+    if (status != null && status.isNotEmpty) queryParams['status'] = status;
+    if (dateFrom != null && dateFrom.isNotEmpty) queryParams['date_from'] = dateFrom;
+    if (dateTo != null && dateTo.isNotEmpty) queryParams['date_to'] = dateTo;
+    if (page != null) queryParams['page'] = page;
+    final response = await _apiClient.dio.get(
+      'api/orders',
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
+    final data = response.data;
+    if (data is List<dynamic>) {
+      final list = data
+          .map((e) => Order.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return PaginatedOrders(
+        data: list,
+        total: list.length,
+        perPage: list.length,
+        currentPage: 1,
+      );
+    }
+    final map = data as Map<String, dynamic>;
+    final items = (map['data'] as List<dynamic>)
+        .map((e) => Order.fromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedOrders(
+      data: items,
+      total: map['total'] as int,
+      perPage: map['per_page'] as int,
+      currentPage: map['current_page'] as int,
+    );
+  }
+
+  Future<Order> getOrder(int id) async {
+    final response = await _apiClient.dio.get('api/orders/$id');
+    return Order.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Order> updateOrderStatus(int id, String status) async {
+    final response = await _apiClient.dio.patch(
+      'api/orders/$id',
+      data: {'status': status},
+    );
+    return Order.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  // Users (admin only)
+  Future<List<User>> getUsers({String? search}) async {
+    final queryParams = <String, dynamic>{};
+    if (search != null && search.trim().isNotEmpty) {
+      queryParams['search'] = search.trim();
+    }
+    final response = await _apiClient.dio.get(
+      'api/users',
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => User.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<User> getUser(int id) async {
+    final response = await _apiClient.dio.get('api/users/$id');
+    return User.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<User> createUser(Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.post('api/users', data: data);
+    return User.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<User> updateUser(int id, Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.patch('api/users/$id', data: data);
+    return User.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteUser(int id) async {
+    await _apiClient.dio.delete('api/users/$id');
   }
 
   // Product Receipts

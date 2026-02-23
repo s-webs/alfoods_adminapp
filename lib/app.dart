@@ -12,6 +12,8 @@ import 'screens/dashboard_screen.dart';
 import 'screens/counterparties_screen.dart';
 import 'screens/counterparty_form_screen.dart';
 import 'screens/debtors_screen.dart';
+import 'screens/order_detail_screen.dart';
+import 'screens/orders_screen.dart';
 import 'screens/entrepreneur_details_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/placeholder_screen.dart';
@@ -28,6 +30,8 @@ import 'screens/sets_screen.dart';
 import 'screens/shift_sales_screen.dart';
 import 'screens/shifts_list_screen.dart';
 import 'screens/tasks_screen.dart';
+import 'screens/user_form_screen.dart';
+import 'screens/users_screen.dart';
 import 'services/api_service.dart';
 
 class App extends StatelessWidget {
@@ -281,6 +285,24 @@ class App extends StatelessWidget {
               ),
             ),
             GoRoute(
+              path: '/orders',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: OrdersScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/orders/:id',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+                return NoTransitionPage(
+                  child: OrderDetailScreen(
+                    apiService: apiService,
+                    orderId: id,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
               path: '/product-receipts',
               pageBuilder: (context, state) => NoTransitionPage(
                 child: ProductReceiptsScreen(apiService: apiService),
@@ -310,6 +332,34 @@ class App extends StatelessWidget {
               pageBuilder: (context, state) => NoTransitionPage(
                 child: TasksScreen(apiService: apiService),
               ),
+            ),
+            GoRoute(
+              path: '/users',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: UsersScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/users/create',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: UserFormScreen(
+                  apiService: apiService,
+                  mode: UserFormMode.create,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/users/:id/edit',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '');
+                return NoTransitionPage(
+                  child: UserFormScreen(
+                    apiService: apiService,
+                    userId: id,
+                    mode: UserFormMode.edit,
+                  ),
+                );
+              },
             ),
           ],
         ),

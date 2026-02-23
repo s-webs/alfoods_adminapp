@@ -700,7 +700,7 @@ class _CashierScreenState extends State<CashierScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                item.name,
+                                '${item.orderIndex}. ${item.name}',
                                 style: Theme.of(context).textTheme.titleMedium
                                     ?.copyWith(fontWeight: FontWeight.w600),
                               ),

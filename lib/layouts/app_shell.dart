@@ -144,6 +144,16 @@ class _AppShellState extends State<AppShell> {
                           },
                         ),
                         _NavItem(
+                          icon: PhosphorIconsRegular.shoppingBag,
+                          label: 'Онлайн заказы',
+                          isSelected: location == '/orders' ||
+                              location.startsWith('/orders/'),
+                          onTap: () {
+                            context.go('/orders');
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        _NavItem(
                           icon: PhosphorIconsRegular.creditCard,
                           label: 'Должники',
                           isSelected: location == '/debtors',
@@ -168,6 +178,16 @@ class _AppShellState extends State<AppShell> {
                           isSelected: location == '/tasks',
                           onTap: () {
                             context.go('/tasks');
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        _NavItem(
+                          icon: PhosphorIconsRegular.users,
+                          label: 'Пользователи',
+                          isSelected: location == '/users' ||
+                              location.startsWith('/users/'),
+                          onTap: () {
+                            context.go('/users');
                             Navigator.of(context).pop();
                           },
                         ),

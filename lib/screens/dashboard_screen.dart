@@ -817,70 +817,72 @@ class _DashboardScreenState extends State<DashboardScreen> {
       Colors.teal,
       Colors.purple,
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          'Доля выручки по дням (₸)',
-          style: TextStyle(
-            fontSize: 12,
-            color: AppColors.muted,
-          ),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 160,
-          child: PieChart(
-            PieChartData(
-        sectionsSpace: 2,
-        centerSpaceRadius: 40,
-        sections: entries.asMap().entries.map((e) {
-          final pct = total > 0 ? (e.value.value / total) : 0.0;
-          return PieChartSectionData(
-            value: e.value.value,
-            title: '${(pct * 100).toStringAsFixed(0)}%',
-            color: colors[e.key % colors.length],
-            radius: 40,
-            titleStyle: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          );
-        }).toList(),
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Доля выручки по дням (₸)',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.muted,
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 12,
-          runSpacing: 4,
-          children: entries.asMap().entries.map((e) {
-            final i = e.key;
-            final d = e.value.key;
-            final c = colors[i % colors.length];
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: c,
-                    shape: BoxShape.circle,
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 160,
+            child: PieChart(
+              PieChartData(
+                sectionsSpace: 2,
+                centerSpaceRadius: 40,
+                sections: entries.asMap().entries.map((e) {
+                  final pct = total > 0 ? (e.value.value / total) : 0.0;
+                  return PieChartSectionData(
+                    value: e.value.value,
+                    title: '${(pct * 100).toStringAsFixed(0)}%',
+                    color: colors[e.key % colors.length],
+                    radius: 40,
+                    titleStyle: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            children: entries.asMap().entries.map((e) {
+              final i = e.key;
+              final d = e.value.key;
+              final c = colors[i % colors.length];
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: c,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  '${d.day}.${d.month}',
-                  style: TextStyle(fontSize: 11, color: AppColors.muted),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
-      ],
+                  const SizedBox(width: 4),
+                  Text(
+                    '${d.day}.${d.month}',
+                    style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ],
+      ),
     );
   }
 }
