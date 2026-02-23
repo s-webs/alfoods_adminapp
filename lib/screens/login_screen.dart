@@ -5,16 +5,19 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/theme.dart';
 import '../core/storage.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
     super.key,
     required this.storage,
     required this.apiService,
+    required this.realtimeService,
   });
 
   final Storage storage;
   final ApiService apiService;
+  final RealtimeService realtimeService;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -65,6 +68,8 @@ class _LoginScreenState extends State<LoginScreen> {
         password: password,
       );
 
+      if (!mounted) return;
+      await widget.realtimeService.connect();
       if (!mounted) return;
       context.go('/categories');
     } catch (e) {

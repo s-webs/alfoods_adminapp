@@ -51,6 +51,8 @@ dependencies:
   fl_chart: ^0.69.0
   image_picker: ^1.0.7
   flutter_image_compress: ^2.4.0
+  centrifuge: ^0.18.0
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   flutter_test:

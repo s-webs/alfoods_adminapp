@@ -9,6 +9,7 @@ import 'package:alfoods_adminapp/app.dart';
 import 'package:alfoods_adminapp/core/api_client.dart';
 import 'package:alfoods_adminapp/core/storage.dart';
 import 'package:alfoods_adminapp/services/api_service.dart';
+import 'package:alfoods_adminapp/services/realtime_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,13 +22,15 @@ void main() {
     final storage = await Storage.init();
     final apiClient = ApiClient(storage);
     final apiService = ApiService(storage, apiClient);
+    final realtimeService = RealtimeService(storage);
 
     await tester.pumpWidget(App(
       storage: storage,
       apiService: apiService,
+      realtimeService: realtimeService,
     ));
 
     // Initial route is /login — verify login screen is shown
-    expect(find.text('Alfoods Касса'), findsOneWidget);
+    expect(find.text('Almaty Foods \n Администратор'), findsOneWidget);
   });
 }

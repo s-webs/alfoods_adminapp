@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -5,6 +8,8 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/storage.dart';
 import '../core/theme.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
+import '../services/realtime_service.dart';
 import '../state/cashier_state.dart';
 import '../state/task_state.dart';
 
@@ -13,11 +18,15 @@ class AppShell extends StatefulWidget {
     super.key,
     required this.storage,
     required this.apiService,
+    required this.realtimeService,
+    required this.notificationService,
     required this.child,
   });
 
   final Storage storage;
   final ApiService apiService;
+  final RealtimeService realtimeService;
+  final NotificationService notificationService;
   final Widget child;
 
   @override
@@ -28,12 +37,58 @@ class _AppShellState extends State<AppShell> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final TaskState _taskState;
   late final CashierState _cashierState;
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _taskState = TaskState(widget.apiService);
     _cashierState = CashierState();
+    if (widget.storage.token != null && widget.storage.token!.isNotEmpty) {
+      _initRealtime();
+      _initNotifications();
+    }
+    _realtimeSub = widget.realtimeService.notifications.listen(_onRealtimeNotification);
+  }
+
+  Future<void> _initRealtime() async {
+    try {
+      await widget.realtimeService.connect();
+    } catch (e) {
+      if (mounted && kDebugMode) {
+        debugPrint('RealtimeService init error: $e');
+      }
+    }
+  }
+
+  Future<void> _initNotifications() async {
+    try {
+      await widget.notificationService.requestPermissions();
+    } catch (e) {
+      if (mounted && kDebugMode) {
+        debugPrint('NotificationService init error: $e');
+      }
+    }
+  }
+
+  void _onRealtimeNotification(dynamic n) {
+    if (!mounted) return;
+    if (n is RealtimeNotification) {
+      widget.notificationService.showFromRealtime(n);
+    }
+    final message = n is RealtimeNotification ? n.message : n.toString();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -229,6 +284,7 @@ class _AppShellState extends State<AppShell> {
                         icon: const Icon(PhosphorIconsRegular.signOut, size: 20),
                         label: const Text('Выйти'),
                         onPressed: () async {
+                          await widget.realtimeService.disconnect();
                           await widget.apiService.logout();
                           if (context.mounted) {
                             context.go('/login');

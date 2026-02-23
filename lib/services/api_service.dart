@@ -68,13 +68,21 @@ class ApiService {
     final token = data['token'] as String;
     final userJson = data['user'] as Map<String, dynamic>;
     final user = User.fromJson(userJson);
+    final centrifugoWsUrl = data['centrifugo_ws_url'] as String?;
+    final centrifugoToken = data['centrifugo_token'] as String?;
 
     await _storage.setBaseUrl(baseUrl.endsWith('/') ? baseUrl : '$baseUrl/');
     await _storage.setToken(token);
     await _storage.setUser(userJson);
+    if (centrifugoWsUrl != null && centrifugoWsUrl.isNotEmpty) {
+      await _storage.setCentrifugoWsUrl(centrifugoWsUrl);
+    }
+    if (centrifugoToken != null && centrifugoToken.isNotEmpty) {
+      await _storage.setCentrifugoToken(centrifugoToken);
+    }
     _apiClient.reconfigure();
 
-    return LoginResult(token: token, user: user);
+    return LoginResult(token: token, user: user, centrifugoWsUrl: centrifugoWsUrl);
   }
 
   void reconfigureClient() {
@@ -823,6 +831,7 @@ class ApiService {
 class LoginResult {
   final String token;
   final User user;
+  final String? centrifugoWsUrl;
 
-  LoginResult({required this.token, required this.user});
+  LoginResult({required this.token, required this.user, this.centrifugoWsUrl});
 }

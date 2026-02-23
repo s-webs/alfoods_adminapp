@@ -33,16 +33,22 @@ import 'screens/tasks_screen.dart';
 import 'screens/user_form_screen.dart';
 import 'screens/users_screen.dart';
 import 'services/api_service.dart';
+import 'services/notification_service.dart';
+import 'services/realtime_service.dart';
 
 class App extends StatelessWidget {
   const App({
     super.key,
     required this.storage,
     required this.apiService,
+    required this.realtimeService,
+    required this.notificationService,
   });
 
   final Storage storage;
   final ApiService apiService;
+  final RealtimeService realtimeService;
+  final NotificationService notificationService;
 
   @override
   Widget build(BuildContext context) {
@@ -73,12 +79,15 @@ class App extends StatelessWidget {
           builder: (context, state) => LoginScreen(
             storage: storage,
             apiService: apiService,
+            realtimeService: realtimeService,
           ),
         ),
         ShellRoute(
           builder: (context, state, child) => AppShell(
             storage: storage,
             apiService: apiService,
+            realtimeService: realtimeService,
+            notificationService: notificationService,
             child: child,
           ),
           routes: [
@@ -287,7 +296,10 @@ class App extends StatelessWidget {
             GoRoute(
               path: '/orders',
               pageBuilder: (context, state) => NoTransitionPage(
-                child: OrdersScreen(apiService: apiService),
+                child: OrdersScreen(
+                  apiService: apiService,
+                  realtimeService: realtimeService,
+                ),
               ),
             ),
             GoRoute(
@@ -330,7 +342,10 @@ class App extends StatelessWidget {
             GoRoute(
               path: '/tasks',
               pageBuilder: (context, state) => NoTransitionPage(
-                child: TasksScreen(apiService: apiService),
+                child: TasksScreen(
+                  apiService: apiService,
+                  realtimeService: realtimeService,
+                ),
               ),
             ),
             GoRoute(

@@ -1,17 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../models/order.dart';
 import '../services/api_service.dart';
+import '../services/realtime_service.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({
     super.key,
     required this.apiService,
+    required this.realtimeService,
   });
 
   final ApiService apiService;
+  final RealtimeService realtimeService;
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -32,11 +37,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
   final _searchController = TextEditingController();
   final _dateFromController = TextEditingController();
   final _dateToController = TextEditingController();
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _realtimeSub = widget.realtimeService.notifications
+        .where((n) => n.type == 'order')
+        .listen((_) {
+      if (mounted) _load(resetPage: true);
+    });
   }
 
   void _setDateFrom(DateTime? date) {
@@ -57,6 +68,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   @override
   void dispose() {
+    _realtimeSub?.cancel();
     _searchController.dispose();
     _dateFromController.dispose();
     _dateToController.dispose();
