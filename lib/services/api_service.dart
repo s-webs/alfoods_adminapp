@@ -15,8 +15,10 @@ import '../models/product_receipt.dart';
 import '../models/product_set.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
+import '../models/supplier.dart';
 import '../models/task.dart';
 import '../models/user.dart';
+import '../models/waybill_analysis.dart';
 
 class PaginatedProducts {
   const PaginatedProducts({
@@ -217,6 +219,104 @@ class ApiService {
     );
     final data = response.data as Map<String, dynamic>;
     return (path: data['path'] as String, url: data['url'] as String);
+  }
+
+  /// Загрузка изображения поступления. Возвращает путь вида /files/receipts/xxx.webp.
+  Future<String> uploadReceiptImage(String filePath, {String? filename}) async {
+    final name = filename ?? filePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(filePath);
+    final formData = FormData.fromMap({
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(filePath, filename: name),
+    });
+    final response = await _apiClient.dio.post(
+      'api/upload/receipt-image',
+      data: formData,
+    );
+    return response.data['path'] as String;
+  }
+
+  Future<Map<String, int>> getWaybillMappings() async {
+    final response = await _apiClient.dio.get('api/waybill/mappings');
+    final list = response.data as List<dynamic>;
+    return {
+      for (final e in list) (e['ai_name'] as String): (e['product_id'] as int),
+    };
+  }
+
+  Future<void> saveWaybillMapping(String aiName, int productId) async {
+    await _apiClient.dio.post('api/waybill/mappings', data: {
+      'ai_name': aiName,
+      'product_id': productId,
+    });
+  }
+
+  Future<WaybillAnalysisResult> analyzeWaybill(
+    String localImagePath, {
+    String? model,
+  }) async {
+    final name = localImagePath.split(RegExp(r'[/\\]')).last;
+    final optimized = await ImageOptimizer.optimizeFile(localImagePath);
+    final formData = FormData.fromMap({
+      'file': optimized != null
+          ? MultipartFile.fromBytes(optimized.bytes, filename: optimized.filename)
+          : await MultipartFile.fromFile(localImagePath, filename: name),
+      if (model != null && model.trim().isNotEmpty) 'model': model.trim(),
+    });
+    try {
+      final response = await _apiClient.dio.post(
+        'api/waybill/analyze',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(seconds: 240),
+        ),
+      );
+      final json = response.data as Map<String, dynamic>;
+      final analysis = json['analysis'] as Map<String, dynamic>;
+      return WaybillAnalysisResult.fromJson(analysis);
+    } on DioException catch (e) {
+      throw WaybillAnalyzeException(_extractWaybillError(e));
+    }
+  }
+
+  String _extractWaybillError(DioException e) {
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.receiveTimeout) {
+      return 'Таймаут при анализе накладной. Повторите попытку.';
+    }
+    if (e.type == DioExceptionType.connectionError) {
+      final detail = e.message?.trim();
+      if (detail != null && detail.isNotEmpty) {
+        return 'Нет соединения с сервером alfoods. $detail';
+      }
+      return 'Нет соединения с сервером alfoods.';
+    }
+
+    final data = e.response?.data;
+    if (data is Map<String, dynamic>) {
+      final error = data['error']?.toString();
+      if (error != null && error.trim().isNotEmpty) return error;
+      final message = data['message']?.toString();
+      if (message != null && message.trim().isNotEmpty) return message;
+      final errors = data['errors'];
+      if (errors is Map) {
+        for (final value in errors.values) {
+          if (value is List && value.isNotEmpty) return value.first.toString();
+          if (value is String && value.isNotEmpty) return value;
+        }
+      }
+    }
+    final status = e.response?.statusCode;
+    if (status == 422) {
+      return 'Файл накладной не прошел валидацию. Попробуйте JPG/PNG/WebP.';
+    }
+    if (status == 502) {
+      return 'Сервис анализа временно недоступен. Повторите позже.';
+    }
+    return 'Ошибка анализа (HTTP ${status ?? 'unknown'}).';
   }
 
   /// Сформировать полный URL по пути (например /files/products/xxx.jpg).
@@ -503,6 +603,15 @@ class ApiService {
     await _apiClient.dio.delete('api/counterparties/$id');
   }
 
+  // Suppliers
+  Future<List<Supplier>> getSuppliers() async {
+    final response = await _apiClient.dio.get('api/suppliers');
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => Supplier.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   // Online orders (website orders)
   Future<PaginatedOrders> getOrders({
     String? search,
@@ -610,26 +719,30 @@ class ApiService {
   }
 
   Future<ProductReceipt> createProductReceipt({
-    int? counterpartyId,
+    int? supplierId,
     String? supplierName,
     required List<Map<String, dynamic>> items,
+    List<String>? images,
   }) async {
     final data = <String, dynamic>{'items': items};
-    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (supplierId != null) data['supplier_id'] = supplierId;
     if (supplierName != null && supplierName.isNotEmpty) {
       data['supplier_name'] = supplierName;
+    }
+    if (images != null && images.isNotEmpty) {
+      data['images'] = images;
     }
     final response = await _apiClient.dio.post('api/product-receipts', data: data);
     return ProductReceipt.fromJson(response.data as Map<String, dynamic>);
   }
 
   Future<ProductReceipt> updateProductReceipt(int id, {
-    int? counterpartyId,
+    int? supplierId,
     String? supplierName,
     List<Map<String, dynamic>>? items,
   }) async {
     final data = <String, dynamic>{};
-    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (supplierId != null) data['supplier_id'] = supplierId;
     if (supplierName != null) data['supplier_name'] = supplierName;
     if (items != null) data['items'] = items;
 
@@ -803,7 +916,7 @@ class ApiService {
     try {
       await _apiClient.dio.patch(
         'api/user',
-        data: <String, dynamic>{if (name != null) 'name': name},
+        data: <String, dynamic>{'name': name},
       );
       final data = await _apiClient.dio.get<Map<String, dynamic>>('api/user');
       if (data.data != null) await _storage.setUser(data.data);
@@ -834,4 +947,12 @@ class LoginResult {
   final String? centrifugoWsUrl;
 
   LoginResult({required this.token, required this.user, this.centrifugoWsUrl});
+}
+
+class WaybillAnalyzeException implements Exception {
+  WaybillAnalyzeException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }

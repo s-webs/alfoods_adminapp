@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../core/theme.dart';
 import '../models/cart_item.dart';
-import '../models/counterparty.dart';
 import '../models/product.dart';
-import '../models/product_set.dart';
+import '../models/supplier.dart';
 import '../services/api_service.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
+import '../widgets/waybill_analysis_dialog.dart';
 import 'barcode_scanner_screen.dart';
 
 class ProductReceiptFormScreen extends StatefulWidget {
@@ -27,22 +29,25 @@ class ProductReceiptFormScreen extends StatefulWidget {
 
 class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
   final List<CartItem> _items = [];
-  List<Counterparty> _counterparties = [];
-  int? _selectedCounterpartyId;
+  List<Supplier> _suppliers = [];
+  int? _selectedSupplierId;
   final TextEditingController _supplierNameController = TextEditingController();
   final FocusNode _barcodeFocusNode = FocusNode();
   final TextEditingController _barcodeController = TextEditingController();
   int? _editingPriceIndex;
   TextEditingController? _priceEditController;
-  bool _isLoading = true;
   bool _isSaving = false;
   bool _isBarcodeLoading = false;
+  bool _isUploadingImages = false;
+  bool _isAnalyzingWaybill = false;
+  final List<String> _images = [];
+  final List<String> _localImagePaths = [];
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadCounterparties();
+    _loadSuppliers();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _barcodeFocusNode.requestFocus();
     });
@@ -57,23 +62,20 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     super.dispose();
   }
 
-  Future<void> _loadCounterparties() async {
+  Future<void> _loadSuppliers() async {
     setState(() {
-      _isLoading = true;
       _error = null;
     });
     try {
-      final counterparties = await widget.apiService.getCounterparties();
+      final suppliers = await widget.apiService.getSuppliers();
       if (!mounted) return;
       setState(() {
-        _counterparties = counterparties;
-        _isLoading = false;
+        _suppliers = suppliers;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Не удалось загрузить контрагентов';
-        _isLoading = false;
+        _error = 'Не удалось загрузить поставщиков';
       });
     }
   }
@@ -173,11 +175,12 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     });
     try {
       final receipt = await widget.apiService.createProductReceipt(
-        counterpartyId: _selectedCounterpartyId,
-        supplierName: _selectedCounterpartyId == null && _supplierNameController.text.isNotEmpty
+        supplierId: _selectedSupplierId,
+        supplierName: _selectedSupplierId == null && _supplierNameController.text.isNotEmpty
             ? _supplierNameController.text.trim()
             : null,
         items: _items.map((e) => e.toJson()).toList(),
+        images: _images,
       );
       if (!mounted) return;
       showToast(context, 'Поступление создано');
@@ -189,6 +192,153 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
         _error = 'Не удалось сохранить поступление';
       });
       showToast(context, _error ?? 'Ошибка');
+    }
+  }
+
+  Future<void> _pickAndUploadImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty || !mounted) return;
+
+    setState(() => _isUploadingImages = true);
+    try {
+      for (final f in result.files) {
+        if (f.path == null || f.path!.isEmpty) continue;
+        final uploadedPath = await widget.apiService.uploadReceiptImage(
+          f.path!,
+          filename: f.name,
+        );
+        if (!mounted) return;
+        setState(() {
+          _images.add(uploadedPath);
+          _localImagePaths.add(f.path!);
+        });
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки изображений: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  Future<void> _captureAndUploadImage() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (picked == null || !mounted) return;
+
+    setState(() => _isUploadingImages = true);
+    try {
+      final uploadedPath = await widget.apiService.uploadReceiptImage(
+        picked.path,
+        filename: picked.name,
+      );
+      if (!mounted) return;
+      setState(() {
+        _images.add(uploadedPath);
+        _localImagePaths.add(picked.path);
+      });
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки фото: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() {
+      _images.removeAt(index);
+      if (index < _localImagePaths.length) {
+        _localImagePaths.removeAt(index);
+      }
+    });
+  }
+
+  Future<void> _analyzeWaybill() async {
+    if (_localImagePaths.isEmpty) {
+      showToast(context, 'Сначала загрузите фото накладной');
+      return;
+    }
+
+    setState(() => _isAnalyzingWaybill = true);
+    try {
+      final result = await widget.apiService.analyzeWaybill(_localImagePaths.last);
+      if (!mounted) return;
+      if (result.items.isEmpty) {
+        showToast(context, 'ИИ не распознал товары');
+        return;
+      }
+
+      final futures = await Future.wait([
+        widget.apiService.getProducts(active: true),
+        widget.apiService.getWaybillMappings(),
+      ]);
+      final allProducts = futures[0] as List<Product>;
+      final mappings = futures[1] as Map<String, int>;
+      final byId = {for (final p in allProducts) p.id: p};
+      if (!mounted) return;
+
+      final resolved = <ResolvedWaybillItem>[];
+      for (final aiItem in result.items) {
+        Product? product;
+        final aiName = aiItem.name;
+        if (aiName != null && mappings.containsKey(aiName)) {
+          product = byId[mappings[aiName]];
+        }
+        if (product == null && aiItem.barcode != null && aiItem.barcode!.isNotEmpty) {
+          final matches = allProducts.where((p) => p.barcode == aiItem.barcode);
+          if (matches.isNotEmpty) {
+            product = matches.first;
+          }
+        }
+        resolved.add(ResolvedWaybillItem(aiItem: aiItem, product: product));
+      }
+
+      final selected = await showDialog<List<ResolvedWaybillItem>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => WaybillAnalysisDialog(
+          result: result,
+          resolvedItems: resolved,
+          allProducts: allProducts,
+          apiService: widget.apiService,
+        ),
+      );
+      if (!mounted || selected == null || selected.isEmpty) return;
+
+      var added = 0;
+      for (final item in selected) {
+        if (item.product == null) continue;
+        final product = item.product!;
+        final existingIndex = _items.indexWhere((e) => e.productId == product.id);
+        final quantity = item.importQuantity ?? (product.unit == 'pcs' ? 1.0 : 0.1);
+        final price = item.importPrice ?? product.purchasePrice;
+
+        setState(() {
+          if (existingIndex >= 0) {
+            _items[existingIndex].quantity += quantity;
+            _items[existingIndex].price = price;
+          } else {
+            _items.insert(
+              0,
+              CartItem(
+                productId: product.id,
+                name: product.name,
+                price: price,
+                quantity: quantity,
+                unit: product.unit,
+              ),
+            );
+            added++;
+          }
+        });
+      }
+
+      showToast(context, added > 0 ? 'Импортировано позиций: $added' : 'Позиции обновлены');
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка анализа накладной: $e');
+    } finally {
+      if (mounted) setState(() => _isAnalyzingWaybill = false);
     }
   }
 
@@ -331,30 +481,30 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     DropdownButtonFormField<int?>(
-                      value: _selectedCounterpartyId,
+                      value: _selectedSupplierId,
                       decoration: const InputDecoration(
-                        labelText: 'Контрагент',
+                        labelText: 'Поставщик',
                         border: OutlineInputBorder(),
                       ),
                       items: [
                         const DropdownMenuItem<int?>(value: null, child: Text('Не выбран')),
-                        ..._counterparties.map(
-                          (c) => DropdownMenuItem<int?>(
-                            value: c.id,
-                            child: Text(c.name),
+                        ..._suppliers.map(
+                          (supplier) => DropdownMenuItem<int?>(
+                            value: supplier.id,
+                            child: Text(supplier.name),
                           ),
                         ),
                       ],
                       onChanged: (value) {
                         setState(() {
-                          _selectedCounterpartyId = value;
+                          _selectedSupplierId = value;
                           if (value != null) {
                             _supplierNameController.clear();
                           }
                         });
                       },
                     ),
-                    if (_selectedCounterpartyId == null) ...[
+                    if (_selectedSupplierId == null) ...[
                       const SizedBox(height: 8),
                       TextField(
                         controller: _supplierNameController,
@@ -388,6 +538,87 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isUploadingImages ? null : _pickAndUploadImages,
+                            icon: _isUploadingImages
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.photo_library_outlined),
+                            label: const Text('Фото накладной'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filledTonal(
+                          onPressed: _isUploadingImages ? null : _captureAndUploadImage,
+                          icon: const Icon(Icons.photo_camera_outlined),
+                          tooltip: 'Сфотографировать',
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.tonalIcon(
+                            onPressed: (_isAnalyzingWaybill || _localImagePaths.isEmpty)
+                                ? null
+                                : _analyzeWaybill,
+                            icon: _isAnalyzingWaybill
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.auto_awesome),
+                            label: const Text('Анализ ИИ'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_images.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 76,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _images.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 8),
+                          itemBuilder: (context, index) {
+                            return Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    widget.apiService.fileUrl(_images[index]),
+                                    width: 76,
+                                    height: 76,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 0,
+                                  top: 0,
+                                  child: InkWell(
+                                    onTap: () => _removeImage(index),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black54,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      padding: const EdgeInsets.all(2),
+                                      child: const Icon(Icons.close, size: 14, color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

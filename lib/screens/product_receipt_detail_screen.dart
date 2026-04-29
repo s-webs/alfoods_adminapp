@@ -3,9 +3,9 @@ import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
 import '../models/cart_item.dart';
-import '../models/counterparty.dart';
 import '../models/product.dart';
 import '../models/product_receipt.dart';
+import '../models/supplier.dart';
 import '../services/api_service.dart';
 import '../utils/toast.dart';
 import '../widgets/add_product_dialog.dart';
@@ -29,8 +29,8 @@ class _ProductReceiptDetailScreenState
     extends State<ProductReceiptDetailScreen> {
   ProductReceipt? _receipt;
   List<CartItem> _items = [];
-  List<Counterparty> _counterparties = [];
-  int? _selectedCounterpartyId;
+  List<Supplier> _suppliers = [];
+  int? _selectedSupplierId;
   String? _supplierName;
   int? _editingPriceIndex;
   TextEditingController? _priceEditController;
@@ -57,7 +57,7 @@ class _ProductReceiptDetailScreenState
     });
     try {
       final receipt = await widget.apiService.getProductReceipt(widget.receiptId);
-      final counterparties = await widget.apiService.getCounterparties();
+      final suppliers = await widget.apiService.getSuppliers();
       if (!mounted) return;
       setState(() {
         _receipt = receipt;
@@ -72,8 +72,8 @@ class _ProductReceiptDetailScreenState
               ),
             )
             .toList();
-        _counterparties = counterparties;
-        _selectedCounterpartyId = receipt.counterpartyId;
+        _suppliers = suppliers;
+        _selectedSupplierId = receipt.supplierId;
         _supplierName = receipt.supplierName;
         _isLoading = false;
       });
@@ -99,8 +99,8 @@ class _ProductReceiptDetailScreenState
     try {
       await widget.apiService.updateProductReceipt(
         widget.receiptId,
-        counterpartyId: _selectedCounterpartyId,
-        supplierName: _selectedCounterpartyId == null ? _supplierName : null,
+        supplierId: _selectedSupplierId,
+        supplierName: _selectedSupplierId == null ? _supplierName : null,
         items: _items.map((e) => e.toJson()).toList(),
       );
       if (!mounted) return;
@@ -309,30 +309,30 @@ class _ProductReceiptDetailScreenState
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<int?>(
-                  value: _selectedCounterpartyId,
+                  value: _selectedSupplierId,
                   decoration: const InputDecoration(
-                    labelText: 'Контрагент',
+                    labelText: 'Поставщик',
                     border: OutlineInputBorder(),
                   ),
                   items: [
                     const DropdownMenuItem<int?>(value: null, child: Text('Не выбран')),
-                    ..._counterparties.map(
-                      (c) => DropdownMenuItem<int?>(
-                        value: c.id,
-                        child: Text(c.name),
+                    ..._suppliers.map(
+                      (supplier) => DropdownMenuItem<int?>(
+                        value: supplier.id,
+                        child: Text(supplier.name),
                       ),
                     ),
                   ],
                   onChanged: (value) {
                     setState(() {
-                      _selectedCounterpartyId = value;
+                      _selectedSupplierId = value;
                       if (value != null) {
                         _supplierName = null;
                       }
                     });
                   },
                 ),
-                if (_selectedCounterpartyId == null) ...[
+                if (_selectedSupplierId == null) ...[
                   const SizedBox(height: 8),
                   TextField(
                     decoration: const InputDecoration(
