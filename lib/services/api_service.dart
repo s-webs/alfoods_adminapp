@@ -612,6 +612,25 @@ class ApiService {
         .toList();
   }
 
+  Future<Supplier> getSupplier(int id) async {
+    final response = await _apiClient.dio.get('api/suppliers/$id');
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Supplier> createSupplier(Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.post('api/suppliers', data: data);
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Supplier> updateSupplier(int id, Map<String, dynamic> data) async {
+    final response = await _apiClient.dio.patch('api/suppliers/$id', data: data);
+    return Supplier.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteSupplier(int id) async {
+    await _apiClient.dio.delete('api/suppliers/$id');
+  }
+
   // Online orders (website orders)
   Future<PaginatedOrders> getOrders({
     String? search,
@@ -740,11 +759,13 @@ class ApiService {
     int? supplierId,
     String? supplierName,
     List<Map<String, dynamic>>? items,
+    List<String>? images,
   }) async {
     final data = <String, dynamic>{};
     if (supplierId != null) data['supplier_id'] = supplierId;
     if (supplierName != null) data['supplier_name'] = supplierName;
     if (items != null) data['items'] = items;
+    if (images != null) data['images'] = images;
 
     final response = await _apiClient.dio.patch('api/product-receipts/$id', data: data);
     return ProductReceipt.fromJson(response.data as Map<String, dynamic>);

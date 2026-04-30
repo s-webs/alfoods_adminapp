@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme.dart';
 
@@ -65,6 +66,16 @@ void showPdfShareDialog(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  FilledButton.icon(
+                    onPressed: () async {
+                      await launchUrl(
+                        Uri.parse(url),
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Открыть чек'),
+                  ),
                   FilledButton.icon(
                     onPressed: () {
                       Share.share('$title: $url');

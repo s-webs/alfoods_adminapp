@@ -254,6 +254,43 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     });
   }
 
+  Future<void> _showImagePreview(String path) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Накладная'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+          body: Container(
+            color: Colors.black,
+            alignment: Alignment.center,
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5,
+              child: Image.network(
+                widget.apiService.fileUrl(path),
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Text(
+                    'Не удалось загрузить изображение',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _analyzeWaybill() async {
     if (_localImagePaths.isEmpty) {
       showToast(context, 'Сначала загрузите фото накладной');
@@ -263,6 +300,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     setState(() => _isAnalyzingWaybill = true);
     try {
       final result = await widget.apiService.analyzeWaybill(_localImagePaths.last);
+      _applySupplierFromAi(result.supplier);
       if (!mounted) return;
       if (result.items.isEmpty) {
         showToast(context, 'ИИ не распознал товары');
@@ -340,6 +378,42 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
     } finally {
       if (mounted) setState(() => _isAnalyzingWaybill = false);
     }
+  }
+
+  String _normalizeSupplierName(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-zа-я0-9]'), '')
+        .trim();
+  }
+
+  void _applySupplierFromAi(String? aiSupplierName) {
+    if (aiSupplierName == null || aiSupplierName.trim().isEmpty) return;
+    final normalizedAi = _normalizeSupplierName(aiSupplierName);
+    if (normalizedAi.isEmpty) return;
+
+    Supplier? matched;
+    for (final supplier in _suppliers) {
+      if (_normalizeSupplierName(supplier.name) == normalizedAi) {
+        matched = supplier;
+        break;
+      }
+    }
+    matched ??= _suppliers.where((supplier) {
+      final normalized = _normalizeSupplierName(supplier.name);
+      return normalized.contains(normalizedAi) || normalizedAi.contains(normalized);
+    }).firstOrNull;
+
+    if (!mounted) return;
+    setState(() {
+      if (matched != null) {
+        _selectedSupplierId = matched.id;
+        _supplierNameController.clear();
+      } else {
+        _selectedSupplierId = null;
+        _supplierNameController.text = aiSupplierName.trim();
+      }
+    });
   }
 
   double get _itemsTotal =>
@@ -587,15 +661,19 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
                           itemCount: _images.length,
                           separatorBuilder: (_, _) => const SizedBox(width: 8),
                           itemBuilder: (context, index) {
+                            final imagePath = _images[index];
                             return Stack(
                               children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    widget.apiService.fileUrl(_images[index]),
-                                    width: 76,
-                                    height: 76,
-                                    fit: BoxFit.cover,
+                                GestureDetector(
+                                  onTap: () => _showImagePreview(imagePath),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      widget.apiService.fileUrl(imagePath),
+                                      width: 76,
+                                      height: 76,
+                                      fit: BoxFit.cover,
+                                    ),
                                   ),
                                 ),
                                 Positioned(

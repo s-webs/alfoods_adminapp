@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import 'core/storage.dart';
 import 'core/theme.dart';
@@ -16,7 +15,6 @@ import 'screens/order_detail_screen.dart';
 import 'screens/orders_screen.dart';
 import 'screens/entrepreneur_details_screen.dart';
 import 'screens/login_screen.dart';
-import 'screens/placeholder_screen.dart';
 import 'screens/product_form_screen.dart';
 import 'screens/product_receipt_detail_screen.dart';
 import 'screens/product_receipt_form_screen.dart';
@@ -26,6 +24,8 @@ import 'screens/sale_detail_screen.dart';
 import 'screens/sale_search_screen.dart';
 import 'screens/set_form_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/supplier_form_screen.dart';
+import 'screens/suppliers_screen.dart';
 import 'screens/sets_screen.dart';
 import 'screens/shift_sales_screen.dart';
 import 'screens/shifts_list_screen.dart';
@@ -196,6 +196,34 @@ class App extends StatelessWidget {
                     apiService: apiService,
                     productId: id,
                     mode: ProductFormMode.edit,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: '/suppliers',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SuppliersScreen(apiService: apiService),
+              ),
+            ),
+            GoRoute(
+              path: '/suppliers/create',
+              pageBuilder: (context, state) => NoTransitionPage(
+                child: SupplierFormScreen(
+                  apiService: apiService,
+                  mode: SupplierFormMode.create,
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/suppliers/:id/edit',
+              pageBuilder: (context, state) {
+                final id = int.tryParse(state.pathParameters['id'] ?? '');
+                return NoTransitionPage(
+                  child: SupplierFormScreen(
+                    apiService: apiService,
+                    supplierId: id,
+                    mode: SupplierFormMode.edit,
                   ),
                 );
               },

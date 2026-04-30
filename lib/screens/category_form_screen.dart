@@ -255,6 +255,19 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
         title: Text(
           widget.mode == CategoryFormMode.edit ? 'Редактирование' : 'Новая категория',
         ),
+        actions: [
+          IconButton(
+            onPressed: _isSaving ? null : _save,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save),
+            tooltip: 'Сохранить',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -315,19 +328,12 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
                       ),
                     ),
                   const SizedBox(width: 12),
-                  if (!_isUploadingImage) ...[
+                  if (!_isUploadingImage)
                     OutlinedButton.icon(
                       onPressed: () => _pickAndUploadImage(useCamera: false),
                       icon: const Icon(Icons.photo_library, size: 20),
                       label: Text(_image != null && _image!.isNotEmpty ? 'Заменить' : 'Выбрать'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => _pickAndUploadImage(useCamera: true),
-                      icon: const Icon(Icons.camera_alt, size: 20),
-                      label: const Text('Камера'),
-                    ),
-                  ]
+                    )
                   else
                     const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
                   if (_image != null && _image!.isNotEmpty) ...[
@@ -340,6 +346,18 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
                   ],
                 ],
               ),
+              if (!_isUploadingImage) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _pickAndUploadImage(useCamera: true),
+                      icon: const Icon(Icons.camera_alt, size: 20),
+                      label: const Text('Камера'),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 16),
               const Text('Цвет от', style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
@@ -462,16 +480,6 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
                   ),
                 ),
               const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Сохранить'),
-              ),
               if (widget.mode == CategoryFormMode.edit) ...[
                 const SizedBox(height: 12),
                 OutlinedButton(

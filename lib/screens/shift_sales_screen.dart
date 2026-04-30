@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
+import '../models/cart_item.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
+import '../services/receipt_pdf_service.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
+import '../widgets/pdf_share_dialog.dart';
 
 class ShiftSalesScreen extends StatefulWidget {
   const ShiftSalesScreen({
@@ -24,6 +28,7 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
   List<Sale> _sales = [];
   Shift? _shift;
   bool _isLoading = true;
+  int? _openingReceiptSaleId;
   String? _error;
 
   @override
@@ -68,6 +73,43 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
       return '$opened – $closed';
     }
     return '$opened (открыта)';
+  }
+
+  String _formatDateTime(DateTime dt) {
+    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year} '
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _openReceiptPdf(Sale sale) async {
+    setState(() => _openingReceiptSaleId = sale.id);
+    try {
+      final fullSale = await widget.apiService.getSale(sale.id);
+      final items = fullSale.items
+          .map(
+            (e) => CartItem(
+              productId: e.productId,
+              name: e.name,
+              price: e.price,
+              quantity: e.quantity,
+              unit: e.unit,
+            ),
+          )
+          .toList();
+      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
+        saleId: fullSale.id,
+        cashierName: 'Касса',
+        items: items,
+        total: fullSale.totalPrice,
+        dateTime: fullSale.createdAt,
+      );
+      final result = await widget.apiService.uploadPdf(pdfBytes, 'chek-${fullSale.id}.pdf');
+      if (!mounted) return;
+      showPdfShareDialog(context, url: result.url, title: 'Чек');
+    } catch (e) {
+      if (mounted) showToast(context, 'Не удалось открыть чек');
+    } finally {
+      if (mounted) setState(() => _openingReceiptSaleId = null);
+    }
   }
 
   @override
@@ -164,7 +206,8 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
                             sale.displayReceiptName,
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          subtitle: Row(
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 '${sale.totalPrice.toStringAsFixed(2)} ₸ • ${sale.totalQty} шт.',
@@ -173,50 +216,75 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
                                   fontSize: 12,
                                 ),
                               ),
-                              if (sale.isReturned) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.muted.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    'Возврат',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: AppColors.muted,
-                                    ),
+                              Text(
+                                _formatDateTime(sale.createdAt),
+                                style: TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              if (sale.isReturned || sale.isOnCredit)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Row(
+                                    children: [
+                                      if (sale.isReturned)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.muted.withValues(alpha: 0.2),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            'Возврат',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: AppColors.muted,
+                                            ),
+                                          ),
+                                        ),
+                                      if (sale.isReturned && sale.isOnCredit)
+                                        const SizedBox(width: 8),
+                                      if (sale.isOnCredit)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.danger.withValues(alpha: 0.2),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'в долг',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: AppColors.danger,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ),
-                              ],
-                              if (sale.isOnCredit) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.danger.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    'в долг',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      color: AppColors.danger,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
-                          trailing: const Icon(Icons.chevron_right),
+                          trailing: IconButton(
+                            tooltip: 'Открыть чек',
+                            onPressed: _openingReceiptSaleId == sale.id
+                                ? null
+                                : () => _openReceiptPdf(sale),
+                            icon: _openingReceiptSaleId == sale.id
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.picture_as_pdf),
+                          ),
                           onTap: () async {
                             final result = await context.push<bool>(
                               '/sales/sale/${sale.id}',

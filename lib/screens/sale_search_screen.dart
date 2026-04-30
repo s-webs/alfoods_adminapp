@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
+import '../models/cart_item.dart';
 import '../models/sale.dart';
+import '../services/receipt_pdf_service.dart';
 import '../services/api_service.dart';
+import '../utils/toast.dart';
+import '../widgets/pdf_share_dialog.dart';
 
 class SaleSearchScreen extends StatefulWidget {
   const SaleSearchScreen({
@@ -22,6 +26,7 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
   List<Sale> _filteredSales = [];
   bool _isLoading = true;
   bool _searched = false;
+  int? _openingReceiptSaleId;
   String? _error;
   final _saleIdController = TextEditingController();
   DateTime? _dateFrom;
@@ -91,6 +96,38 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
   String _formatDate(DateTime dt) {
     return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year} '
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _openReceiptPdf(Sale sale) async {
+    setState(() => _openingReceiptSaleId = sale.id);
+    try {
+      final fullSale = await widget.apiService.getSale(sale.id);
+      final items = fullSale.items
+          .map(
+            (e) => CartItem(
+              productId: e.productId,
+              name: e.name,
+              price: e.price,
+              quantity: e.quantity,
+              unit: e.unit,
+            ),
+          )
+          .toList();
+      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
+        saleId: fullSale.id,
+        cashierName: 'Касса',
+        items: items,
+        total: fullSale.totalPrice,
+        dateTime: fullSale.createdAt,
+      );
+      final result = await widget.apiService.uploadPdf(pdfBytes, 'chek-${fullSale.id}.pdf');
+      if (!mounted) return;
+      showPdfShareDialog(context, url: result.url, title: 'Чек');
+    } catch (_) {
+      if (mounted) showToast(context, 'Не удалось открыть чек');
+    } finally {
+      if (mounted) setState(() => _openingReceiptSaleId = null);
+    }
   }
 
   Future<void> _pickDate(bool isFrom) async {
@@ -254,19 +291,24 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
-                                      subtitle: Row(
+                                      subtitle: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Expanded(
-                                            child: Text(
-                                              '${sale.totalPrice.toStringAsFixed(2)} ₸ • ${_formatDate(sale.createdAt)}',
-                                              style: TextStyle(
-                                                color: AppColors.muted,
-                                                fontSize: 12,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
+                                          Text(
+                                            '${sale.totalPrice.toStringAsFixed(2)} ₸',
+                                            style: TextStyle(
+                                              color: AppColors.muted,
+                                              fontSize: 12,
                                             ),
                                           ),
-                                          const SizedBox(width: 8),
+                                          Text(
+                                            _formatDate(sale.createdAt),
+                                            style: TextStyle(
+                                              color: AppColors.muted,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
                                           Container(
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 6,
@@ -290,7 +332,19 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
                                           ),
                                         ],
                                       ),
-                                      trailing: const Icon(Icons.chevron_right),
+                                      trailing: IconButton(
+                                        tooltip: 'Открыть чек',
+                                        onPressed: _openingReceiptSaleId == sale.id
+                                            ? null
+                                            : () => _openReceiptPdf(sale),
+                                        icon: _openingReceiptSaleId == sale.id
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(strokeWidth: 2),
+                                              )
+                                            : const Icon(Icons.picture_as_pdf),
+                                      ),
                                       onTap: () async {
                                         final result = await context.push<bool>(
                                           '/sales/sale/${sale.id}',

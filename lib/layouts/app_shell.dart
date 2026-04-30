@@ -149,42 +149,23 @@ class _AppShellState extends State<AppShell> {
                           },
                         ),
                         _NavItem(
-                          icon: PhosphorIconsRegular.listBullets,
-                          label: 'Категории',
-                          isSelected: location == '/categories' ||
-                              location.startsWith('/categories/'),
+                          icon: PhosphorIconsRegular.arrowDown,
+                          label: 'Поступления',
+                          isSelected: location == '/product-receipts' ||
+                              location.startsWith('/product-receipts/'),
                           onTap: () {
-                            context.go('/categories');
+                            context.go('/product-receipts');
                             Navigator.of(context).pop();
                           },
                         ),
                         _NavItem(
                           icon: PhosphorIconsRegular.package,
                           label: 'Товары',
-                          isSelected: location == '/products' ||
-                              location.startsWith('/products/'),
+                          isSelected:
+                              location == '/products' ||
+                                  location.startsWith('/products/'),
                           onTap: () {
                             context.go('/products');
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                        _NavItem(
-                          icon: PhosphorIconsRegular.buildings,
-                          label: 'Контрагенты',
-                          isSelected: location == '/counterparties' ||
-                              location.startsWith('/counterparties/'),
-                          onTap: () {
-                            context.go('/counterparties');
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                        _NavItem(
-                          icon: PhosphorIconsRegular.package,
-                          label: 'Сеты',
-                          isSelected:
-                              location == '/sets' || location.startsWith('/sets/'),
-                          onTap: () {
-                            context.go('/sets');
                             Navigator.of(context).pop();
                           },
                         ),
@@ -209,21 +190,52 @@ class _AppShellState extends State<AppShell> {
                           },
                         ),
                         _NavItem(
+                          icon: PhosphorIconsRegular.package,
+                          label: 'Поставщики',
+                          isSelected:
+                              location == '/suppliers' ||
+                                  location.startsWith('/suppliers/'),
+                          onTap: () {
+                            context.go('/suppliers');
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        _NavItem(
+                          icon: PhosphorIconsRegular.listBullets,
+                          label: 'Категории',
+                          isSelected: location == '/categories' ||
+                              location.startsWith('/categories/'),
+                          onTap: () {
+                            context.go('/categories');
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        _NavItem(
+                          icon: PhosphorIconsRegular.buildings,
+                          label: 'Покупатели',
+                          isSelected: location == '/counterparties' ||
+                              location.startsWith('/counterparties/'),
+                          onTap: () {
+                            context.go('/counterparties');
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        _NavItem(
+                          icon: PhosphorIconsRegular.package,
+                          label: 'Сеты',
+                          isSelected:
+                              location == '/sets' || location.startsWith('/sets/'),
+                          onTap: () {
+                            context.go('/sets');
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        _NavItem(
                           icon: PhosphorIconsRegular.creditCard,
                           label: 'Должники',
                           isSelected: location == '/debtors',
                           onTap: () {
                             context.go('/debtors');
-                            Navigator.of(context).pop();
-                          },
-                        ),
-                        _NavItem(
-                          icon: PhosphorIconsRegular.arrowDown,
-                          label: 'Поступления',
-                          isSelected: location == '/product-receipts' ||
-                              location.startsWith('/product-receipts/'),
-                          onTap: () {
-                            context.go('/product-receipts');
                             Navigator.of(context).pop();
                           },
                         ),

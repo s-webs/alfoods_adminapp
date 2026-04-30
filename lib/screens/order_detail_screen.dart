@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../core/theme.dart';
 import '../models/order.dart';
@@ -129,6 +130,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(true),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Отметить как выдан',
+            onPressed: (_isUpdating || !canMarkIssued) ? null : _markIssued,
+            icon: _isUpdating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(
+                    PhosphorIconsRegular.checkCircle,
+                    size: 32.0,
+                  ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -337,23 +354,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 ),
               ),
             ),
-            if (canMarkIssued) ...[
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _isUpdating ? null : _markIssued,
-                icon: _isUpdating
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.check_circle_outline, size: 20),
-                label: const Text('Выдан'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ],
           ],
         ),
       ),

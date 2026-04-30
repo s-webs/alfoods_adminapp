@@ -725,6 +725,20 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
         ),
+        actions: [
+          if (!isReturned)
+            IconButton(
+              onPressed: _isSaving ? null : _save,
+              icon: _isSaving
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save),
+              tooltip: 'Сохранить',
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -1047,7 +1061,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Контрагент: ${_counterparty!.name}',
+                        'Покупатель: ${_counterparty!.name}',
                         style: const TextStyle(fontWeight: FontWeight.w500),
                       ),
                       const SizedBox(height: 8),
@@ -1209,7 +1223,7 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
               FilledButton.icon(
                 onPressed: _items.isEmpty ? null : _saveReceiptPdf,
                 icon: const Icon(Icons.picture_as_pdf, size: 20),
-                label: const Text('Сохранить в PDF'),
+                label: const Text('Открыть чек'),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.accent,
                 ),
@@ -1239,17 +1253,6 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                 ),
                 const SizedBox(height: 12),
               ],
-              FilledButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Сохранить'),
-              ),
-              const SizedBox(height: 12),
               OutlinedButton(
                 onPressed: _isSaving ? null : _returnSale,
                 style: OutlinedButton.styleFrom(

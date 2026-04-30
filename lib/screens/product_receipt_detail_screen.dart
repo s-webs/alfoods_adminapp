@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -36,6 +37,8 @@ class _ProductReceiptDetailScreenState
   TextEditingController? _priceEditController;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isUploadingImages = false;
+  List<String> _images = [];
   String? _error;
 
   @override
@@ -75,6 +78,7 @@ class _ProductReceiptDetailScreenState
         _suppliers = suppliers;
         _selectedSupplierId = receipt.supplierId;
         _supplierName = receipt.supplierName;
+        _images = List<String>.from(receipt.images);
         _isLoading = false;
       });
     } catch (e) {
@@ -102,6 +106,7 @@ class _ProductReceiptDetailScreenState
         supplierId: _selectedSupplierId,
         supplierName: _selectedSupplierId == null ? _supplierName : null,
         items: _items.map((e) => e.toJson()).toList(),
+        images: _images,
       );
       if (!mounted) return;
       showToast(context, 'Поступление обновлено');
@@ -243,6 +248,72 @@ class _ProductReceiptDetailScreenState
     }
   }
 
+  Future<void> _pickAndUploadImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+    );
+    if (result == null || result.files.isEmpty || !mounted) return;
+    setState(() => _isUploadingImages = true);
+    try {
+      for (final f in result.files) {
+        final path = f.path;
+        if (path == null || path.isEmpty) continue;
+        final uploadedPath = await widget.apiService.uploadReceiptImage(
+          path,
+          filename: f.name,
+        );
+        if (!mounted) return;
+        setState(() => _images.add(uploadedPath));
+      }
+    } catch (e) {
+      if (mounted) showToast(context, 'Ошибка загрузки: $e');
+    } finally {
+      if (mounted) setState(() => _isUploadingImages = false);
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() => _images.removeAt(index));
+  }
+
+  Future<void> _showImagePreview(String path) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Накладная'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+          body: Container(
+            color: Colors.black,
+            alignment: Alignment.center,
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5,
+              child: Image.network(
+                widget.apiService.fileUrl(path),
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Text(
+                    'Не удалось загрузить изображение',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   String _formatDate(DateTime dt) {
     return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year} '
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
@@ -346,6 +417,67 @@ class _ProductReceiptDetailScreenState
                     onChanged: (value) {
                       _supplierName = value.isEmpty ? null : value;
                     },
+                  ),
+                ],
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _isUploadingImages ? null : _pickAndUploadImages,
+                  icon: _isUploadingImages
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.photo_library_outlined),
+                  label: const Text('Добавить фото накладной'),
+                ),
+                if (_images.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 76,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _images.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final imagePath = _images[index];
+                        return Stack(
+                          children: [
+                            GestureDetector(
+                              onTap: () => _showImagePreview(imagePath),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  widget.apiService.fileUrl(imagePath),
+                                  width: 76,
+                                  height: 76,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              right: 0,
+                              top: 0,
+                              child: InkWell(
+                                onTap: () => _removeImage(index),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.all(2),
+                                  child: const Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ],
               ],

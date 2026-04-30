@@ -10,6 +10,7 @@ class CartItem {
   double quantity;
   final String unit;
   final int orderIndex;
+  final double? stock;
 
   CartItem({
     required this.productId,
@@ -19,6 +20,7 @@ class CartItem {
     required this.quantity,
     required this.unit,
     this.orderIndex = 0,
+    this.stock,
   });
 
   CartItem copyWith({
@@ -29,6 +31,7 @@ class CartItem {
     double? quantity,
     String? unit,
     int? orderIndex,
+    double? stock,
   }) =>
       CartItem(
         productId: productId ?? this.productId,
@@ -38,6 +41,7 @@ class CartItem {
         quantity: quantity ?? this.quantity,
         unit: unit ?? this.unit,
         orderIndex: orderIndex ?? this.orderIndex,
+        stock: stock ?? this.stock,
       );
 
   double get total => price * quantity;

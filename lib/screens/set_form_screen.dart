@@ -335,6 +335,19 @@ class _SetFormScreenState extends State<SetFormScreen> {
         title: Text(
           widget.mode == SetFormMode.edit ? 'Редактирование сета' : 'Новый сет',
         ),
+        actions: [
+          IconButton(
+            onPressed: _isSaving ? null : _save,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save),
+            tooltip: 'Сохранить',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -587,16 +600,6 @@ class _SetFormScreenState extends State<SetFormScreen> {
                 ],
               ),
               const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _isSaving ? null : _save,
-                child: _isSaving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Сохранить'),
-              ),
               if (widget.mode == SetFormMode.edit) ...[
                 const SizedBox(height: 12),
                 OutlinedButton(

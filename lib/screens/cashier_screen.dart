@@ -112,6 +112,7 @@ class _CashierScreenState extends State<CashierScreen> {
         price: product.effectivePrice,
         quantity: 1,
         unit: product.unit,
+        stock: product.stock,
       ),
     );
   }
@@ -213,7 +214,8 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   Future<void> _showAddSnapshotToCartDialog(String barcode) async {
-    final nameController = TextEditingController(text: 'Товар $barcode');
+    final initialName = barcode == 'manual' ? '' : 'Товар $barcode';
+    final nameController = TextEditingController(text: initialName);
     final priceController = TextEditingController(text: '0');
     String unit = 'pcs';
     final quantityController = TextEditingController(text: '1');
@@ -310,6 +312,10 @@ class _CashierScreenState extends State<CashierScreen> {
       );
       showToast(context, 'Добавлено: ${result.name}');
     }
+  }
+
+  Future<void> _addOneOffItem() async {
+    await _showAddSnapshotToCartDialog('manual');
   }
 
   void _startEditPrice(int index) {
@@ -440,13 +446,13 @@ class _CashierScreenState extends State<CashierScreen> {
 
   Future<void> _pickCounterpartyForCredit() async {
     if (_counterparties.isEmpty) {
-      showToast(context, 'Нет контрагентов');
+      showToast(context, 'Нет покупателей');
       return;
     }
     final selected = await showDialog<Counterparty>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Продажа в долг — выберите контрагента'),
+        title: const Text('Продажа в долг — выберите покупателя'),
         content: SizedBox(
           width: 320,
           child: ListView.builder(
@@ -530,7 +536,7 @@ class _CashierScreenState extends State<CashierScreen> {
     }
     if (_cashierState.isOnCredit &&
         _cashierState.selectedCounterpartyId == null) {
-      showToast(context, 'Выберите контрагента для продажи в долг');
+      showToast(context, 'Выберите покупателя для продажи в долг');
       return;
     }
     setState(() => _isSelling = true);
@@ -609,12 +615,19 @@ class _CashierScreenState extends State<CashierScreen> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _openAddProductDialog,
-                      icon: const Icon(PhosphorIconsRegular.plus, size: 20),
-                      label: const Text('Добавить товар вручную'),
+                  FilledButton(
+                    onPressed: _openAddProductDialog,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(44, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
+                    child: const Icon(PhosphorIconsRegular.plus, size: 20),
+                  ),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _addOneOffItem,
+                    icon: const Icon(Icons.edit_note, size: 20),
+                    label: const Text('Разовый товар'),
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
@@ -705,6 +718,16 @@ class _CashierScreenState extends State<CashierScreen> {
                                     ?.copyWith(fontWeight: FontWeight.w600),
                               ),
                               const SizedBox(height: 6),
+                              if (item.productId != 0 && item.stock != null)
+                                Text(
+                                  'Остаток: ${item.stock!.toStringAsFixed(item.unit == 'pcs' ? 0 : 2)} ${item.unit}',
+                                  style: TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              if (item.productId != 0 && item.stock != null)
+                                const SizedBox(height: 6),
                               Row(
                                 children: [
                                   GestureDetector(
@@ -815,7 +838,7 @@ class _CashierScreenState extends State<CashierScreen> {
                             ? null
                             : _saveReceiptPdf,
                         icon: const Icon(Icons.receipt_long, size: 20),
-                        label: const Text('Чек'),
+                        label: const Text('Открыть чек'),
                       ),
                     ),
                     const SizedBox(width: 8),

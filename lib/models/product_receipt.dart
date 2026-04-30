@@ -11,6 +11,7 @@ class ProductReceipt {
   final double totalPrice;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final List<String> images;
 
   const ProductReceipt({
     required this.id,
@@ -22,6 +23,7 @@ class ProductReceipt {
     required this.totalPrice,
     required this.createdAt,
     required this.updatedAt,
+    this.images = const [],
   });
 
   String get supplierDisplayName =>
@@ -52,6 +54,10 @@ class ProductReceipt {
       updatedAt: json['updated_at'] != null
           ? DateTime.parse(json['updated_at'].toString())
           : DateTime.now(),
+      images: (json['images'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
     );
   }
 
@@ -72,6 +78,7 @@ class ProductReceipt {
       'supplier_id': supplierId,
       'supplier_name': supplierName,
       'items': items.map((item) => item.toJson()).toList(),
+      'images': images,
     };
   }
 }
