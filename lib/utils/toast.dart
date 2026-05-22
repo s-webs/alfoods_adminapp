@@ -5,7 +5,11 @@ import '../core/theme.dart';
 /// Показывает toast-уведомление в правом верхнем углу.
 /// Автоматически закрывается через 2 секунды.
 void showToast(BuildContext context, String message) {
-  final overlay = Overlay.of(context);
+  showToastOverlay(Overlay.of(context), message);
+}
+
+/// Toast без [BuildContext] после async (overlay захватывают до await).
+void showToastOverlay(OverlayState overlay, String message) {
   late OverlayEntry entry;
 
   entry = OverlayEntry(

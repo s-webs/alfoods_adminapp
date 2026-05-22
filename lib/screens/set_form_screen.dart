@@ -467,7 +467,7 @@ class _SetFormScreenState extends State<SetFormScreen> {
                             child: Image.network(
                               path.startsWith('http') ? path : widget.apiService.fileUrl(path),
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Icon(Icons.broken_image, color: AppColors.muted),
+                              errorBuilder: (_, _, _) => Icon(Icons.broken_image, color: AppColors.muted),
                             ),
                           ),
                           Positioned(

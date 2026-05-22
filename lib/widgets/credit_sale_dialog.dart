@@ -87,7 +87,8 @@ class _CreditSaleDialogState extends State<CreditSaleDialog> {
                 )
               else
                 DropdownButtonFormField<Counterparty?>(
-                  value: _selectedCounterparty,
+                  key: ValueKey(_selectedCounterparty),
+                  initialValue: _selectedCounterparty,
                   decoration: const InputDecoration(
                     labelText: 'Контрагент *',
                     border: OutlineInputBorder(),

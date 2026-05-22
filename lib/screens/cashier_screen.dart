@@ -5,17 +5,24 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/storage.dart';
 import '../core/theme.dart';
 import '../models/cart_item.dart';
-import '../models/counterparty.dart';
+import '../models/fiscal_receipt.dart';
 import '../models/product.dart';
 import '../models/product_set.dart';
+import '../models/sale_payment_method.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
-import '../services/receipt_pdf_service.dart';
+import '../services/api_webkassa_exception.dart';
+import '../services/cashier_resolver_service.dart';
+import '../services/checkout_service.dart';
 import '../state/cashier_state.dart';
 import '../utils/toast.dart';
+import '../utils/webkassa_error_display.dart';
 import '../widgets/add_product_dialog.dart';
-import '../widgets/pdf_share_dialog.dart';
-import '../widgets/invoice_dialog.dart';
+import '../widgets/credit_sale_dialog.dart';
+import '../widgets/fiscal_receipt_dialog.dart';
+import '../widgets/mixed_payment_dialog.dart';
+import '../widgets/pos_payment_method_dialog.dart';
+import '../widgets/z_report_dialog.dart';
 import 'barcode_scanner_screen.dart';
 
 class CashierScreen extends StatefulWidget {
@@ -33,23 +40,33 @@ class CashierScreen extends StatefulWidget {
 }
 
 class _CashierScreenState extends State<CashierScreen> {
-  List<Counterparty> _counterparties = [];
-  Shift? _openShift;
+  List<Shift> _shifts = [];
   bool _isLoading = true;
+  bool _isOpeningShift = false;
+  bool _isClosingShift = false;
   bool _isSelling = false;
-  bool _isReturnMode = false;
-  bool _isAcceptingReturn = false;
+  bool _isPosPaying = false;
+  bool _isPaying = false;
   bool _isResetting = false;
-  bool _isSavingReceiptPdf = false;
   String? _error;
   int? _editingPriceIndex;
   TextEditingController? _priceEditController;
+  late final TextEditingController _customerXinController;
+  late final CashierResolverService _cashierResolver;
+  late final CheckoutService _checkoutService;
+  int? _resolvedCashierId;
+  String? _customerXinError;
   CashierState? _state;
   bool _listenerAdded = false;
+
+  static const _invalidCustomerXin = '__invalid__';
 
   @override
   void initState() {
     super.initState();
+    _customerXinController = TextEditingController();
+    _cashierResolver = CashierResolverService(widget.storage);
+    _checkoutService = CheckoutService(widget.apiService);
     _load();
   }
 
@@ -74,7 +91,15 @@ class _CashierScreenState extends State<CashierScreen> {
       _state!.removeListener(_onStateChanged);
     }
     _priceEditController?.dispose();
+    _customerXinController.dispose();
     super.dispose();
+  }
+
+  Shift? get _currentOpenShift {
+    for (final s in _shifts) {
+      if (s.isOpen) return s;
+    }
+    return null;
   }
 
   void _onStateChanged() => setState(() {});
@@ -88,16 +113,112 @@ class _CashierScreenState extends State<CashierScreen> {
     });
     try {
       final shifts = await widget.apiService.getShifts();
-      final counterparties = await widget.apiService.getCounterparties();
+      final cashierId = await _cashierResolver.resolveCashierId(
+        widget.apiService,
+      );
       if (!mounted) return;
-      final open = shifts.where((s) => s.isOpen).firstOrNull;
       setState(() {
-        _openShift = open;
-        _counterparties = counterparties;
+        _shifts = shifts;
+        _resolvedCashierId = cashierId;
         _isLoading = false;
+        _isOpeningShift = false;
+        _isClosingShift = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _error = 'Не удалось загрузить смены';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openShift() async {
+    setState(() {
+      _isOpeningShift = true;
+      _error = null;
+    });
+    try {
+      await widget.apiService.createShift();
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось открыть смену';
+        _isOpeningShift = false;
+      });
+    }
+  }
+
+  Future<void> _closeShift() async {
+    final shift = _currentOpenShift;
+    if (shift == null) return;
+    final cashierId = _resolvedCashierId;
+    if (cashierId == null) {
+      showToast(context, 'Кассир не привязан к пользователю');
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Закрыть смену?'),
+        content: const Text(
+          'Если за смену были ОФД-продажи, будет сформирован Z-отчёт в WebKassa.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            child: const Text('Закрыть'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() {
+      _isClosingShift = true;
+      _error = null;
+    });
+    try {
+      final result =
+          await widget.apiService.closeShift(shift.id, cashierId: cashierId);
+      await _load();
+      if (!mounted) return;
+      setState(() => _isClosingShift = false);
+      showToast(
+        context,
+        result.message ??
+            (result.zReport != null
+                ? 'Смена закрыта. Z-отчёт сформирован'
+                : 'Смена закрыта'),
+      );
+      final zReport = result.shift.webkassaZReport ?? result.zReport;
+      if (ZReportDialog.hasViewableData(zReport)) {
+        await ZReportDialog.show(
+          context,
+          zReport: zReport!,
+          zReportAt: result.shift.webkassaZReportAt,
+        );
+      }
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = formatWebkassaError(e);
+        _isClosingShift = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось закрыть смену';
+        _isClosingShift = false;
+      });
     }
   }
 
@@ -251,7 +372,8 @@ class _CashierScreenState extends State<CashierScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: unit,
+                  key: ValueKey(unit),
+                  initialValue: unit,
                   decoration: const InputDecoration(
                     labelText: 'Единица',
                     border: OutlineInputBorder(),
@@ -397,169 +519,482 @@ class _CashierScreenState extends State<CashierScreen> {
     showToast(context, 'Корзина очищена');
   }
 
-  Future<void> _saveReceiptPdf() async {
-    if (_cashierState.cart.isEmpty) {
-      showToast(context, 'Нет позиций для чека');
-      return;
+  Future<void> _showWebkassaCheckoutError(ApiWebkassaException e) async {
+    setState(() => _error = formatWebkassaError(e));
+    final hint = webkassaErrorHint(e.webkassaCode);
+    if (hint != null) showToast(context, hint);
+    if (e.fiscal != null) {
+      await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
     }
-    setState(() => _isSavingReceiptPdf = true);
-    try {
-      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
-        saleId: 0,
-        cashierName: 'Касса',
-        items: _cashierState.cart,
-        total: _cashierState.cartTotal,
-        dateTime: DateTime.now(),
-      );
-      final filename =
-          'chek-${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final result = await widget.apiService.uploadPdf(pdfBytes, filename);
-      if (!mounted) return;
-      showPdfShareDialog(
-        context,
-        url: result.url,
-        title: 'Чек',
-      );
-    } catch (e) {
-      if (!mounted) return;
+  }
+
+  String? _readCustomerXinForCheckout() {
+    final raw = _customerXinController.text.trim();
+    if (raw.isEmpty) {
+      setState(() => _customerXinError = null);
+      return null;
+    }
+    if (RegExp(r'^\d{12}$').hasMatch(raw)) {
+      setState(() => _customerXinError = null);
+      return raw;
+    }
+    setState(() => _customerXinError = 'ИИН/БИН: ровно 12 цифр');
+    showToast(context, 'ИИН/БИН: ровно 12 цифр');
+    return _invalidCustomerXin;
+  }
+
+  void _clearFiscalCheckoutFields() {
+    _customerXinController.clear();
+    if (_customerXinError != null && mounted) {
+      setState(() => _customerXinError = null);
+    }
+  }
+
+  bool _validateCheckoutPreconditions({bool requireCashier = false}) {
+    if (_cashierState.cart.isEmpty) {
+      showToast(context, 'Корзина пуста');
+      return false;
+    }
+    if (_currentOpenShift == null) {
+      showToast(context, 'Смена не открыта');
+      return false;
+    }
+    if (requireCashier && _resolvedCashierId == null) {
       showToast(
         context,
-        'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
+        'Нет привязки кассира к пользователю для WebKassa',
       );
-    } finally {
-      if (mounted) setState(() => _isSavingReceiptPdf = false);
+      return false;
     }
+    return true;
   }
 
-  void _openInvoiceDialog() {
-    if (_cashierState.cart.isEmpty) {
-      showToast(context, 'Нет позиций для накладной');
+  void _showFiscalSuccess(FiscalReceipt? fiscal) {
+    if (!mounted) return;
+    if (fiscal == null) {
+      showToast(context, 'Продажа оформлена');
       return;
     }
-    showInvoiceDialog(
-      context: context,
-      apiService: widget.apiService,
-      items: List.from(_cashierState.cart),
-      storage: widget.storage,
+    final check = fiscal.checkNumber;
+    showToast(
+      context,
+      check != null && check.isNotEmpty
+          ? 'Продажа оформлена · чек $check'
+          : 'Продажа оформлена',
     );
   }
 
-  Future<void> _pickCounterpartyForCredit() async {
-    if (_counterparties.isEmpty) {
-      showToast(context, 'Нет покупателей');
-      return;
-    }
-    final selected = await showDialog<Counterparty>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Продажа в долг — выберите покупателя'),
-        content: SizedBox(
-          width: 320,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: _counterparties.length,
-            itemBuilder: (context, i) {
-              final c = _counterparties[i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: AppColors.muted.withValues(alpha: 0.6),
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ListTile(
-                    title: Text(c.name),
-                    subtitle: c.iin != null ? Text('ИИН/БИН: ${c.iin}') : null,
-                    onTap: () => Navigator.pop(ctx, c),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Отмена'),
-          ),
-        ],
-      ),
-    );
-    if (selected != null && mounted) {
-      _cashierState.setCredit(selected.id);
-      showToast(context, 'В долг: ${selected.name}');
-    }
+  Future<void> _openPosPayment() async {
+    if (!_validateCheckoutPreconditions(requireCashier: true)) return;
+    final method = await PosPaymentMethodDialog.show(context);
+    if (method == null || !mounted) return;
+    final customerXin = _readCustomerXinForCheckout();
+    if (customerXin == _invalidCustomerXin) return;
+    await _checkoutOfdDirect(method, customerXin: customerXin);
   }
 
-  void _clearCredit() {
-    _cashierState.clearCredit();
-  }
-
-  Future<void> _acceptReturn() async {
-    if (_cashierState.cart.isEmpty) return;
+  Future<void> _checkoutOfdDirect(
+    SalePaymentMethod method, {
+    String? customerXin,
+  }) async {
+    final shift = _currentOpenShift!;
     setState(() {
-      _isAcceptingReturn = true;
+      _isPosPaying = true;
       _error = null;
     });
     try {
-      await widget.apiService.acceptReturn(
-        items: _cashierState.cart.map((e) => e.toJson()).toList(),
-        shiftId: _openShift?.id,
-        cashierId: null,
+      final result = await _checkoutService.finalizeOfdSale(
+        cashierId: _resolvedCashierId!,
+        shiftId: shift.id,
+        items: _cashierState.cart.map((c) => c.toJson()).toList(),
+        paymentMethod: method,
+        customerXin: customerXin,
       );
       if (!mounted) return;
+      _showFiscalSuccess(result.fiscal);
+      _clearFiscalCheckoutFields();
       _cashierState.clearCart();
-      setState(() => _isAcceptingReturn = false);
-      showToast(context, 'Возврат принят');
-    } catch (e) {
+      setState(() => _isPosPaying = false);
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      await _showWebkassaCheckoutError(e);
+      setState(() => _isPosPaying = false);
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _isAcceptingReturn = false;
-        _error = 'Не удалось принять возврат';
+        _error = 'Не удалось оформить продажу';
+        _isPosPaying = false;
       });
     }
   }
 
-  Future<void> _sell() async {
-    if (_cashierState.cart.isEmpty) {
-      showToast(context, 'Добавьте товары в корзину');
-      return;
-    }
-    if (_openShift == null) {
-      showToast(
-        context,
-        'Нет открытой смены. Откройте смену в приложении кассы.',
-      );
-      return;
-    }
-    if (_cashierState.isOnCredit &&
-        _cashierState.selectedCounterpartyId == null) {
-      showToast(context, 'Выберите покупателя для продажи в долг');
-      return;
-    }
-    setState(() => _isSelling = true);
+  Future<void> _openMixedPayment() async {
+    if (!_validateCheckoutPreconditions(requireCashier: true)) return;
+    final splits = await MixedPaymentDialog.show(
+      context,
+      totalAmount: _cashierState.cartTotal,
+    );
+    if (splits == null || !mounted) return;
+    final customerXin = _readCustomerXinForCheckout();
+    if (customerXin == _invalidCustomerXin) return;
+    final shift = _currentOpenShift!;
+    setState(() {
+      _isPosPaying = true;
+      _error = null;
+    });
     try {
-      final sale = await widget.apiService.createSale(
-        shiftId: _openShift!.id,
-        counterpartyId: _cashierState.selectedCounterpartyId,
-        isOnCredit: _cashierState.isOnCredit,
-        items: _cashierState.cart.map((e) => e.toJson()).toList(),
+      final result = await _checkoutService.finalizeMixedOfdSale(
+        cashierId: _resolvedCashierId!,
+        shiftId: shift.id,
+        items: _cashierState.cart.map((c) => c.toJson()).toList(),
+        paymentSplits: splits,
+        customerXin: customerXin,
       );
       if (!mounted) return;
+      _showFiscalSuccess(result.fiscal);
+      _clearFiscalCheckoutFields();
       _cashierState.clearCart();
-      setState(() => _isSelling = false);
-      showToast(context, 'Продажа #${sale.id} оформлена');
-      context.push('/sales/sale/${sale.id}');
+      setState(() => _isPosPaying = false);
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      await _showWebkassaCheckoutError(e);
+      setState(() => _isPosPaying = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось оформить смешанную оплату';
+        _isPosPaying = false;
+      });
+    }
+  }
+
+  Future<void> _payWithoutOfd() async {
+    await _completeNonOfdCheckout(SalePaymentMethod.payment);
+  }
+
+  Future<void> _completeNonOfdCheckout(SalePaymentMethod method) async {
+    if (!_validateCheckoutPreconditions()) return;
+    final shift = _currentOpenShift!;
+    setState(() {
+      _isPaying = method == SalePaymentMethod.payment;
+      _isSelling = method != SalePaymentMethod.payment;
+      _error = null;
+    });
+    final items = _cashierState.cart.map((c) => c.toJson()).toList();
+    try {
+      final result = await _checkoutService.finalizeNonOfdSale(
+        cashierId: _resolvedCashierId,
+        shiftId: shift.id,
+        items: items,
+        paymentMethod: method,
+      );
+      if (!mounted) return;
+      showToast(context, 'Продажа #${result.sale.id} оформлена');
+      _clearFiscalCheckoutFields();
+      _cashierState.clearCart();
+      setState(() {
+        _isPaying = false;
+        _isSelling = false;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isSelling = false);
+      setState(() {
+        _error = 'Не удалось оформить продажу';
+        _isPaying = false;
+        _isSelling = false;
+      });
       showToast(
         context,
         'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
       );
     }
+  }
+
+  Future<void> _sellOnCredit() async {
+    if (_cashierState.cart.isEmpty) {
+      showToast(context, 'Корзина пуста');
+      return;
+    }
+    final shift = _currentOpenShift;
+    if (shift == null) {
+      showToast(context, 'Смена не открыта');
+      return;
+    }
+    final creditResult = await showDialog<CreditSaleResult>(
+      context: context,
+      builder: (ctx) => CreditSaleDialog(apiService: widget.apiService),
+    );
+    if (creditResult == null ||
+        !creditResult.isOnCredit ||
+        creditResult.counterpartyId == null) {
+      return;
+    }
+    setState(() {
+      _isSelling = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.apiService.createSale(
+        shiftId: shift.id,
+        cashierId: _resolvedCashierId,
+        counterpartyId: creditResult.counterpartyId,
+        isOnCredit: true,
+        items: _cashierState.cart.map((c) => c.toJson()).toList(),
+      );
+      if (!mounted) return;
+      _clearFiscalCheckoutFields();
+      _cashierState.clearCart();
+      setState(() => _isSelling = false);
+      showToast(context, 'Продажа в долг #${result.sale.id} оформлена');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось оформить продажу в долг';
+        _isSelling = false;
+      });
+    }
+  }
+
+  Widget _buildShiftBlock() {
+    final open = _currentOpenShift;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: open != null
+            ? AppColors.primary.withValues(alpha: 0.08)
+            : AppColors.muted.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              open != null
+                  ? 'Смена #${open.id} открыта'
+                  : 'Смена не открыта',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (open == null)
+            FilledButton(
+              onPressed: _isOpeningShift ? null : _openShift,
+              child: _isOpeningShift
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Открыть'),
+            )
+          else
+            OutlinedButton(
+              onPressed: _isClosingShift ? null : _closeShift,
+              style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+              child: _isClosingShift
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Закрыть смену'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatCartTotalQty(double qty) {
+    final rounded = qty.roundToDouble();
+    if ((qty - rounded).abs() < 1e-9) return rounded.toInt().toString();
+    final s = qty.toStringAsFixed(2);
+    return s.replaceAll(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  }
+
+  static const _checkoutBtnRadius = BorderRadius.all(Radius.circular(8));
+
+  ButtonStyle _compactOutlinedStyle(Color fg) {
+    return OutlinedButton.styleFrom(
+      foregroundColor: fg,
+      side: BorderSide(color: fg.withValues(alpha: 0.6)),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      minimumSize: const Size(0, 40),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      shape: const RoundedRectangleBorder(borderRadius: _checkoutBtnRadius),
+    );
+  }
+
+  Widget _compactOutlinedBtn({
+    required VoidCallback? onPressed,
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: _compactOutlinedStyle(color),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCheckoutActions() {
+    final cartNotEmpty = _cashierState.cart.isNotEmpty;
+    final shiftOpen = _currentOpenShift != null;
+    final isBusy = _isSelling || _isPosPaying || _isPaying;
+    final isPosCheckoutEnabled = cartNotEmpty && shiftOpen && !isBusy;
+    final isNonOfdCheckoutEnabled = cartNotEmpty && shiftOpen && !_isPaying;
+    final isCreditSaleEnabled = cartNotEmpty && shiftOpen && !_isSelling;
+    final totalQty = _cashierState.cart.fold<double>(
+      0,
+      (sum, item) => sum + item.quantity,
+    );
+    final itemCount = _cashierState.cart.length;
+    final totalStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w800,
+          height: 1.1,
+          color: cartNotEmpty ? AppColors.primary : AppColors.muted,
+        );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${_cashierState.cartTotal.toStringAsFixed(2)} ₸',
+                    style: totalStyle,
+                  ),
+                  if (cartNotEmpty)
+                    Text(
+                      '$itemCount поз. · ${_formatCartTotalQty(totalQty)} шт.',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AppColors.muted,
+                          ),
+                    ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: cartNotEmpty && !_isResetting ? _resetCart : null,
+              tooltip: 'Очистить',
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              style: IconButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                minimumSize: const Size(36, 36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: _isResetting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
+            ),
+          ],
+        ),
+        if (cartNotEmpty && !shiftOpen) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Откройте смену для продажи',
+            style: TextStyle(
+              color: AppColors.danger,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+        if (_isPosPaying) ...[
+          const SizedBox(height: 4),
+          const LinearProgressIndicator(minHeight: 2),
+        ],
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: _compactOutlinedBtn(
+                onPressed: isPosCheckoutEnabled ? _openPosPayment : null,
+                icon: Icons.point_of_sale,
+                label: 'POS',
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _compactOutlinedBtn(
+                onPressed: isPosCheckoutEnabled ? _openMixedPayment : null,
+                icon: Icons.account_balance_wallet_outlined,
+                label: 'Смеш.',
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _compactOutlinedBtn(
+                onPressed: isCreditSaleEnabled ? _sellOnCredit : null,
+                icon: Icons.credit_card,
+                label: 'Долг',
+                color: AppColors.danger,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        FilledButton(
+          onPressed: isNonOfdCheckoutEnabled ? _payWithoutOfd : null,
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF43A047),
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: const RoundedRectangleBorder(borderRadius: _checkoutBtnRadius),
+          ),
+          child: _isPaying
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.shopping_cart_checkout, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Продать',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -584,34 +1019,20 @@ class _CashierScreenState extends State<CashierScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                width: double.infinity,
-                child: _isReturnMode
-                    ? OutlinedButton.icon(
-                        onPressed: _isAcceptingReturn
-                            ? null
-                            : () {
-                                setState(() {
-                                  _isReturnMode = false;
-                                  _error = null;
-                                });
-                                _cashierState.clearCart();
-                              },
-                        icon: const Icon(Icons.point_of_sale, size: 20),
-                        label: const Text('Режим продажи'),
-                      )
-                    : OutlinedButton.icon(
-                        onPressed: _isSelling ? null : () {
-                          setState(() {
-                            _isReturnMode = true;
-                            _error = null;
-                          });
-                          _cashierState.clearCart();
-                        },
-                        icon: const Icon(Icons.keyboard_return, size: 20),
-                        label: const Text('Режим возврата'),
-                      ),
-              ),
+              _buildShiftBlock(),
+              if (_currentOpenShift != null) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _customerXinController,
+                  decoration: InputDecoration(
+                    labelText: 'ИИН/БИН покупателя',
+                    errorText: _customerXinError,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -640,24 +1061,6 @@ class _CashierScreenState extends State<CashierScreen> {
             ],
           ),
         ),
-        if (_isReturnMode)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: AppColors.accent.withValues(alpha: 0.15),
-            child: Row(
-              children: [
-                Icon(Icons.keyboard_return, color: AppColors.accent, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Режим возврата — товары пополнят остатки',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.accent,
-                  ),
-                ),
-              ],
-            ),
-          ),
         if (_error != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -819,165 +1222,25 @@ class _CashierScreenState extends State<CashierScreen> {
                 ),
         ),
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           decoration: BoxDecoration(
             color: Colors.white,
-            border: Border(
-              top: BorderSide(color: AppColors.muted.withValues(alpha: 0.5)),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (!_isReturnMode) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _cashierState.cart.isEmpty
-                            ? null
-                            : _saveReceiptPdf,
-                        icon: const Icon(Icons.receipt_long, size: 20),
-                        label: const Text('Открыть чек'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _cashierState.cart.isEmpty
-                            ? null
-                            : _openInvoiceDialog,
-                        icon: const Icon(Icons.description, size: 20),
-                        label: const Text('Накладная'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _cashierState.isOnCredit
-                                ? FilledButton.tonal(
-                                    onPressed: _pickCounterpartyForCredit,
-                                    child: Text(
-                                      _counterparties
-                                              .where(
-                                                (c) =>
-                                                    c.id ==
-                                                    _cashierState
-                                                        .selectedCounterpartyId,
-                                              )
-                                              .firstOrNull
-                                              ?.name ??
-                                          'В долг',
-                                    ),
-                                  )
-                                : OutlinedButton.icon(
-                                    onPressed: _pickCounterpartyForCredit,
-                                    icon: const Icon(Icons.credit_card, size: 20),
-                                    label: const Text('В долг'),
-                                  ),
-                          ),
-                          if (_cashierState.isOnCredit)
-                            IconButton(
-                              onPressed: _clearCredit,
-                              icon: const Icon(Icons.close),
-                              tooltip: 'Отменить продажу в долг',
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-              ],
-              if (_cashierState.cart.isNotEmpty)
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isResetting ? null : _resetCart,
-                        icon: _isResetting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.clear_all, size: 20),
-                        label: Text(_isResetting ? 'Сброс...' : 'Сброс'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.danger,
-                          side: const BorderSide(color: AppColors.danger),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Text(
-                    'Итого: ${_cashierState.cartTotal.toStringAsFixed(2)} ₸',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Spacer(),
-                  _isReturnMode
-                      ? FilledButton.icon(
-                          onPressed: _isAcceptingReturn ||
-                                  _cashierState.cart.isEmpty
-                              ? null
-                              : _acceptReturn,
-                          icon: _isAcceptingReturn
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.keyboard_return, size: 20),
-                          label: Text(
-                            _isAcceptingReturn ? 'Приём...' : 'Принять возврат',
-                          ),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.accent,
-                          ),
-                        )
-                      : FilledButton(
-                          onPressed: _isSelling || _cashierState.cart.isEmpty
-                              ? null
-                              : _sell,
-                          child: _isSelling
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Text('Продать'),
-                        ),
-                ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 8,
+                offset: const Offset(0, -2),
               ),
             ],
+          ),
+          child: SafeArea(
+            top: false,
+            minimum: const EdgeInsets.only(bottom: 4),
+            child: _buildCheckoutActions(),
           ),
         ),
       ],
     ),
-    if (_isSavingReceiptPdf) ...[
-      ModalBarrier(dismissible: false),
-      const Center(child: CircularProgressIndicator()),
-    ],
   ],
     );
   }

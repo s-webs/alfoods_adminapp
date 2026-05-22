@@ -14,6 +14,9 @@ class Storage {
   static const _keyEntrepreneurBin = 'entrepreneur_bin';
   static const _keyEntrepreneurManager = 'entrepreneur_manager';
   static const _keyEntrepreneurAddress = 'entrepreneur_address';
+  static const _keySelectedCashierId = 'selected_cashier_id';
+  static const _keyReceiptRawEncoding = 'receipt_raw_encoding';
+  static const _keyReceiptRawXprinterPreamble = 'receipt_raw_xprinter_preamble';
 
   final SharedPreferences _prefs;
 
@@ -116,6 +119,30 @@ class Storage {
     } else {
       await _prefs.setString(_keyEntrepreneurAddress, value);
     }
+  }
+
+  int? get selectedCashierId => _prefs.getInt(_keySelectedCashierId);
+
+  Future<void> setSelectedCashierId(int? id) async {
+    if (id == null) {
+      await _prefs.remove(_keySelectedCashierId);
+    } else {
+      await _prefs.setInt(_keySelectedCashierId, id);
+    }
+  }
+
+  String get receiptRawEncoding =>
+      _prefs.getString(_keyReceiptRawEncoding) ?? 'cp866_17';
+
+  Future<void> setReceiptRawEncoding(String value) async {
+    await _prefs.setString(_keyReceiptRawEncoding, value);
+  }
+
+  bool get receiptRawXprinterPreamble =>
+      _prefs.getBool(_keyReceiptRawXprinterPreamble) ?? false;
+
+  Future<void> setReceiptRawXprinterPreamble(bool value) async {
+    await _prefs.setBool(_keyReceiptRawXprinterPreamble, value);
   }
 
   Future<void> clearAuth() async {

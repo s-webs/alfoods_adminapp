@@ -117,7 +117,8 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<TaskStatus>(
-                value: _selectedStatus,
+                key: ValueKey(_selectedStatus),
+                initialValue: _selectedStatus,
                 decoration: const InputDecoration(
                   labelText: 'Статус',
                   border: OutlineInputBorder(),

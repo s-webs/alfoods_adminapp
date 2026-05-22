@@ -277,7 +277,7 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
               child: Image.network(
                 widget.apiService.fileUrl(path),
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Center(
+                errorBuilder: (_, _, _) => const Center(
                   child: Text(
                     'Не удалось загрузить изображение',
                     style: TextStyle(color: Colors.white),
@@ -555,7 +555,8 @@ class _ProductReceiptFormScreenState extends State<ProductReceiptFormScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     DropdownButtonFormField<int?>(
-                      value: _selectedSupplierId,
+                      key: ValueKey(_selectedSupplierId),
+                      initialValue: _selectedSupplierId,
                       decoration: const InputDecoration(
                         labelText: 'Поставщик',
                         border: OutlineInputBorder(),

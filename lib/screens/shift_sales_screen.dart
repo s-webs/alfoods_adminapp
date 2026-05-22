@@ -43,12 +43,13 @@ class _ShiftSalesScreenState extends State<ShiftSalesScreen> {
       _error = null;
     });
     try {
-      final sales = await widget.apiService.getSales();
+      final sales = await widget.apiService.getAllSalesForShift(
+        shiftId: widget.shiftId,
+      );
       final shifts = await widget.apiService.getShifts();
       if (!mounted) return;
       final shift = shifts.where((s) => s.id == widget.shiftId).firstOrNull;
-      final filtered = sales.where((s) => s.shiftId == widget.shiftId).toList();
-      final sorted = List<Sale>.from(filtered)..sort((a, b) => b.id.compareTo(a.id));
+      final sorted = List<Sale>.from(sales)..sort((a, b) => b.id.compareTo(a.id));
       setState(() {
         _sales = sorted;
         _shift = shift;

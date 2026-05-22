@@ -74,58 +74,59 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Future<void> _createTask() async {
+    final taskState = TaskStateScope.of(context);
+    final overlay = Overlay.of(context);
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => const TaskFormDialog(),
     );
 
-    if (result != null && mounted) {
-      try {
-        final taskState = TaskStateScope.of(context);
-        await taskState.createTask(
-          title: result['title'] as String,
-          description: result['description'] as String?,
-          dueDate: result['dueDate'] as DateTime,
-          status: result['status'] as TaskStatus?,
-        );
-        await _load();
-        final todayTaskState = TaskStateScope.of(context);
-        await todayTaskState.loadTodayTasks(force: true);
-      } catch (e) {
-        if (mounted) {
-          showToast(context, 'Не удалось создать задачу: ${e.toString()}');
-        }
-      }
+    if (result == null || !mounted) return;
+    try {
+      await taskState.createTask(
+        title: result['title'] as String,
+        description: result['description'] as String?,
+        dueDate: result['dueDate'] as DateTime,
+        status: result['status'] as TaskStatus?,
+      );
+      await _load();
+      if (!mounted) return;
+      await taskState.loadTodayTasks(force: true);
+    } catch (e) {
+      if (!mounted) return;
+      showToastOverlay(overlay, 'Не удалось создать задачу: ${e.toString()}');
     }
   }
 
   Future<void> _editTask(Task task) async {
+    final taskState = TaskStateScope.of(context);
+    final overlay = Overlay.of(context);
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => TaskFormDialog(task: task),
     );
 
-    if (result != null && mounted) {
-      try {
-        await widget.apiService.updateTask(
-          task.id,
-          title: result['title'] as String,
-          description: result['description'] as String?,
-          dueDate: result['dueDate'] as DateTime,
-          status: result['status'] as TaskStatus?,
-        );
-        await _load();
-        final taskState = TaskStateScope.of(context);
-        await taskState.loadTodayTasks(force: true);
-      } catch (e) {
-        if (mounted) {
-          showToast(context, 'Не удалось обновить задачу: ${e.toString()}');
-        }
-      }
+    if (result == null || !mounted) return;
+    try {
+      await widget.apiService.updateTask(
+        task.id,
+        title: result['title'] as String,
+        description: result['description'] as String?,
+        dueDate: result['dueDate'] as DateTime,
+        status: result['status'] as TaskStatus?,
+      );
+      await _load();
+      if (!mounted) return;
+      await taskState.loadTodayTasks(force: true);
+    } catch (e) {
+      if (!mounted) return;
+      showToastOverlay(overlay, 'Не удалось обновить задачу: ${e.toString()}');
     }
   }
 
   Future<void> _deleteTask(Task task) async {
+    final taskState = TaskStateScope.of(context);
+    final overlay = Overlay.of(context);
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -145,17 +146,15 @@ class _TasksScreenState extends State<TasksScreen> {
       ),
     );
 
-    if (confirm == true && mounted) {
-      try {
-        await widget.apiService.deleteTask(task.id);
-        await _load();
-        final taskState = TaskStateScope.of(context);
-        await taskState.loadTodayTasks(force: true);
-      } catch (e) {
-        if (mounted) {
-          showToast(context, 'Не удалось удалить задачу: ${e.toString()}');
-        }
-      }
+    if (confirm != true || !mounted) return;
+    try {
+      await widget.apiService.deleteTask(task.id);
+      await _load();
+      if (!mounted) return;
+      await taskState.loadTodayTasks(force: true);
+    } catch (e) {
+      if (!mounted) return;
+      showToastOverlay(overlay, 'Не удалось удалить задачу: ${e.toString()}');
     }
   }
 
@@ -470,6 +469,8 @@ class _TasksScreenState extends State<TasksScreen> {
                                     if (value == 'edit') {
                                       await _editTask(task);
                                     } else if (value == 'status') {
+                                      final taskState = TaskStateScope.of(context);
+                                      final overlay = Overlay.of(context);
                                       final newStatus = await showMenu<TaskStatus>(
                                         context: context,
                                         position: const RelativeRect.fromLTRB(100, 100, 100, 100),
@@ -493,19 +494,18 @@ class _TasksScreenState extends State<TasksScreen> {
                                           );
                                         }).toList(),
                                       );
-                                      if (newStatus != null && mounted) {
+                                      if (newStatus != null) {
                                         try {
                                           await widget.apiService.updateTask(
                                             task.id,
                                             status: newStatus,
                                           );
                                           await _load();
-                                          final taskState = TaskStateScope.of(context);
+                                          if (!mounted) return;
                                           await taskState.loadTodayTasks(force: true);
                                         } catch (e) {
-                                          if (mounted) {
-                                            showToast(context, 'Не удалось обновить статус: ${e.toString()}');
-                                          }
+                                          if (!mounted) return;
+                                          showToastOverlay(overlay, 'Не удалось обновить статус: ${e.toString()}');
                                         }
                                       }
                                     } else if (value == 'delete') {

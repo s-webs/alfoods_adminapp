@@ -66,8 +66,12 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
     return v != null ? Color(0xFF000000 | v) : null;
   }
 
-  static String _colorToHex(Color c) =>
-      '#${c.red.toRadixString(16).padLeft(2, '0')}${c.green.toRadixString(16).padLeft(2, '0')}${c.blue.toRadixString(16).padLeft(2, '0')}';
+  static String _colorToHex(Color c) {
+    final r = (c.r * 255.0).round().clamp(0, 255);
+    final g = (c.g * 255.0).round().clamp(0, 255);
+    final b = (c.b * 255.0).round().clamp(0, 255);
+    return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
+  }
 
   Future<void> _load() async {
     setState(() {
@@ -324,7 +328,7 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
                         width: 80,
                         height: 80,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Icon(Icons.broken_image, color: AppColors.muted),
+                        errorBuilder: (_, _, _) => Icon(Icons.broken_image, color: AppColors.muted),
                       ),
                     ),
                   const SizedBox(width: 12),

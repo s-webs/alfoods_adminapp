@@ -45,12 +45,10 @@ class Product {
     if (metaRaw is Map<String, dynamic>) {
       meta = metaRaw;
     } else if (metaRaw is Map) {
-      meta = Map<String, dynamic>.from(metaRaw as Map);
+      meta = Map<String, dynamic>.from(metaRaw);
     }
     final imagesRaw = json['images'] as List<dynamic>?;
-    final images = imagesRaw != null
-        ? imagesRaw.map((e) => e.toString()).toList()
-        : null;
+    final images = imagesRaw?.map((e) => e.toString()).toList();
     final idRaw = json['id'];
     final categoryIdRaw = json['category_id'];
     return Product(

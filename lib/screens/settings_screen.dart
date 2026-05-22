@@ -3,6 +3,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../core/storage.dart';
 import '../core/theme.dart';
+import '../models/webkassa_cashbox.dart';
 import '../services/api_service.dart';
 import '../utils/toast.dart';
 
@@ -34,6 +35,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isSavingUrl = false;
   bool _isSavingName = false;
   bool _isSavingPassword = false;
+  bool _webkassaBusy = false;
+  String? _webkassaStatus;
+  Map<String, dynamic>? _webkassaHealth;
+  List<WebkassaCashbox> _webkassaCashboxes = [];
 
   @override
   void initState() {
@@ -43,6 +48,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _nameController = TextEditingController(
       text: user != null ? (user['name'] as String? ?? '') : '',
     );
+    _loadWebkassa();
+  }
+
+  Future<void> _loadWebkassa() async {
+    setState(() {
+      _webkassaBusy = true;
+      _webkassaStatus = null;
+    });
+    try {
+      final health = await widget.apiService.getWebkassaHealth();
+      final cashboxes = await widget.apiService.getWebkassaCashboxes();
+      if (!mounted) return;
+      setState(() {
+        _webkassaHealth = health;
+        _webkassaCashboxes = cashboxes;
+        _webkassaBusy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _webkassaStatus = 'Ошибка: $e';
+        _webkassaBusy = false;
+      });
+    }
+  }
+
+  Future<void> _refreshWebkassaSession() async {
+    setState(() => _webkassaBusy = true);
+    try {
+      final result = await widget.apiService.refreshWebkassaSession();
+      if (!mounted) return;
+      setState(() {
+        _webkassaStatus = result['message']?.toString() ?? 'Сессия обновлена';
+        _webkassaBusy = false;
+      });
+      await _loadWebkassa();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _webkassaStatus = 'Ошибка: $e';
+        _webkassaBusy = false;
+      });
+    }
   }
 
   @override
@@ -300,6 +348,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'WebKassa',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: AppColors.muted,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 8),
+          if (_webkassaBusy)
+            const Center(child: CircularProgressIndicator())
+          else ...[
+            if (_webkassaHealth != null)
+              Text(
+                'Настроено: ${_webkassaHealth!['configured'] == true ? 'да' : 'нет'}, '
+                'токен: ${_webkassaHealth!['token_present'] == true ? 'есть' : 'нет'}',
+              ),
+            if (_webkassaCashboxes.isNotEmpty)
+              Text('Касс: ${_webkassaCashboxes.length}'),
+            if (widget.storage.selectedCashierId != null)
+              Text('Кассир в приложении: ID ${widget.storage.selectedCashierId}'),
+            if (_webkassaStatus != null) ...[
+              const SizedBox(height: 8),
+              Text(_webkassaStatus!),
+            ],
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              OutlinedButton(
+                onPressed: _webkassaBusy ? null : _loadWebkassa,
+                child: const Text('Обновить статус'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _webkassaBusy ? null : _refreshWebkassaSession,
+                child: const Text('Обновить сессию'),
+              ),
+            ],
           ),
         ],
       ),

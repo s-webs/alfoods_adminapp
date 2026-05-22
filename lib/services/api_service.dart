@@ -13,8 +13,15 @@ import '../models/order.dart';
 import '../models/product.dart';
 import '../models/product_receipt.dart';
 import '../models/product_set.dart';
+import '../models/paginated_sales.dart';
 import '../models/sale.dart';
+import '../models/sale_create_result.dart';
+import '../models/sale_payment_method.dart';
+import '../models/sale_return_result.dart';
 import '../models/shift.dart';
+import '../models/webkassa_cashbox.dart';
+import '../utils/time_util.dart';
+import 'api_webkassa_exception.dart';
 import '../models/supplier.dart';
 import '../models/task.dart';
 import '../models/user.dart';
@@ -104,8 +111,14 @@ class ApiService {
   }
 
   Future<List<Shift>> getShifts() async {
-    final response = await _apiClient.dio.get('api/shifts');
-    final list = response.data as List<dynamic>;
+    final response = await _apiClient.dio.get(
+      'api/shifts',
+      queryParameters: {'per_page': 100, 'page': 1},
+    );
+    final raw = response.data;
+    final list = raw is List<dynamic>
+        ? raw
+        : (raw as Map<String, dynamic>)['data'] as List<dynamic>;
     return list
         .map((e) => Shift.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -115,20 +128,27 @@ class ApiService {
     final response = await _apiClient.dio.post(
       'api/shifts',
       data: {
-        'opened_at': DateTime.now().toUtc().toIso8601String(),
+        'opened_at': TimeUtil.isoUtcPlus5FromUtc(TimeUtil.syncedUtcNow()),
       },
     );
     return Shift.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<Shift> closeShift(int shiftId) async {
-    final response = await _apiClient.dio.patch(
-      'api/shifts/$shiftId',
-      data: {
-        'closed_at': DateTime.now().toUtc().toIso8601String(),
-      },
-    );
-    return Shift.fromJson(response.data as Map<String, dynamic>);
+  Future<ShiftCloseResult> closeShift(int shiftId, {required int cashierId}) async {
+    try {
+      final response = await _apiClient.dio.post(
+        'api/shifts/$shiftId/close',
+        data: <String, dynamic>{'cashier_id': cashierId},
+      );
+      return ShiftCloseResult.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on DioException catch (e) {
+      if (e.response != null) {
+        throw ApiWebkassaException.fromDio(e);
+      }
+      rethrow;
+    }
   }
 
   Future<List<Cashier>> getCashiers() async {
@@ -502,49 +522,223 @@ class ApiService {
     await _apiClient.dio.delete('api/sets/$id');
   }
 
-  Future<List<Sale>> getSales() async {
-    final response = await _apiClient.dio.get('api/sales');
-    final list = response.data as List<dynamic>;
-    return list
-        .map((e) => Sale.fromJson(e as Map<String, dynamic>))
-        .toList();
+  static const int salesPerPage = 15;
+
+  Future<PaginatedSales> getSales({
+    int? shiftId,
+    int page = 1,
+    int perPage = salesPerPage,
+    String ofdFilter = 'all',
+  }) async {
+    final query = <String, dynamic>{
+      'page': page,
+      'per_page': perPage,
+      'ofd_filter': ofdFilter,
+    };
+    if (shiftId != null) query['shift_id'] = shiftId;
+
+    final response = await _apiClient.dio.get(
+      'api/sales',
+      queryParameters: query,
+    );
+    return PaginatedSales.fromResponse(response.data);
   }
+
+  Future<List<Sale>> getSalesList({int? shiftId, String ofdFilter = 'all'}) async {
+    final all = <Sale>[];
+    var page = 1;
+    while (true) {
+      final result = await getSales(
+        shiftId: shiftId,
+        page: page,
+        perPage: 100,
+        ofdFilter: ofdFilter,
+      );
+      all.addAll(result.data);
+      if (page >= result.lastPage) break;
+      page++;
+    }
+    return all;
+  }
+
+  Future<List<Sale>> getAllSalesForShift({
+    required int shiftId,
+    String ofdFilter = 'all',
+  }) async {
+    final all = <Sale>[];
+    var page = 1;
+    while (true) {
+      final result = await getSales(
+        shiftId: shiftId,
+        page: page,
+        perPage: 100,
+        ofdFilter: ofdFilter,
+      );
+      all.addAll(result.data);
+      if (page >= result.lastPage) break;
+      page++;
+    }
+    return all;
+  }
+
+  Future<PaginatedSales> searchSales({
+    int? saleId,
+    String? webkassaCheckNumber,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int? shiftId,
+    String? paymentReport,
+    int page = 1,
+    int perPage = salesPerPage,
+  }) async {
+    final query = <String, dynamic>{
+      'page': page,
+      'per_page': perPage,
+    };
+    if (saleId != null) query['sale_id'] = saleId;
+    if (webkassaCheckNumber != null && webkassaCheckNumber.trim().isNotEmpty) {
+      query['webkassa_check_number'] = webkassaCheckNumber.trim();
+    }
+    if (dateFrom != null) {
+      query['date_from'] = _formatDateParam(dateFrom);
+    }
+    if (dateTo != null) {
+      query['date_to'] = _formatDateParam(dateTo);
+    }
+    if (shiftId != null) query['shift_id'] = shiftId;
+    if (paymentReport != null && paymentReport.isNotEmpty) {
+      query['payment_report'] = paymentReport;
+    }
+
+    final response = await _apiClient.dio.get(
+      'api/sales/search',
+      queryParameters: query,
+    );
+    return PaginatedSales.fromResponse(response.data);
+  }
+
+  static String _formatDateParam(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 
   Future<Sale> getSale(int id) async {
     final response = await _apiClient.dio.get('api/sales/$id');
     return Sale.fromJson(response.data as Map<String, dynamic>);
   }
 
-  Future<Sale> createSale({
+  Future<SaleCreateResult> createSale({
     int? cashierId,
     int? shiftId,
     int? counterpartyId,
     bool isOnCredit = false,
+    bool fiscalize = false,
+    SalePaymentMethod? paymentMethod,
+    List<Map<String, dynamic>>? payments,
+    List<Map<String, dynamic>>? paymentSplits,
+    String? customerXin,
+    String? externalCheckNumber,
+    String? customerEmail,
+    String? customerPhone,
     required List<Map<String, dynamic>> items,
   }) async {
-    final response = await _apiClient.dio.post(
-      'api/sales',
-      data: {
-        'cashier_id': cashierId,
-        'shift_id': shiftId,
-        'counterparty_id': counterpartyId,
-        'is_on_credit': isOnCredit,
-        'items': items,
-      },
+    final data = <String, dynamic>{
+      'cashier_id': cashierId,
+      'shift_id': shiftId,
+      'counterparty_id': counterpartyId,
+      'is_on_credit': isOnCredit,
+      'items': items,
+    };
+
+    if (paymentMethod != null) {
+      data['payment_method'] = paymentMethod.apiValue;
+    }
+    if (customerXin != null && customerXin.isNotEmpty) {
+      data['customer_xin'] = customerXin;
+    }
+    if (externalCheckNumber != null && externalCheckNumber.isNotEmpty) {
+      data['external_check_number'] = externalCheckNumber;
+    }
+    if (customerEmail != null && customerEmail.isNotEmpty) {
+      data['customer_email'] = customerEmail;
+    }
+    if (customerPhone != null && customerPhone.isNotEmpty) {
+      data['customer_phone'] = customerPhone;
+    }
+    if (fiscalize) {
+      data['fiscalize'] = true;
+      data['payments'] = payments ?? [];
+    }
+    if (paymentSplits != null && paymentSplits.isNotEmpty) {
+      data['payment_splits'] = paymentSplits;
+    }
+
+    final expectsFiscal = fiscalize ||
+        (paymentMethod != null && paymentMethod.requiresFiscalization);
+
+    try {
+      final response = await _apiClient.dio.post('api/sales', data: data);
+      return SaleCreateResult.fromResponse(response.data);
+    } on DioException catch (e) {
+      if (expectsFiscal && e.response != null) {
+        throw ApiWebkassaException.fromDio(e);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> pingBackend({
+    Duration? receiveTimeout,
+    Duration? sendTimeout,
+  }) async {
+    await _apiClient.dio.get(
+      'api/tasks/today',
+      options: Options(
+        receiveTimeout: receiveTimeout,
+        sendTimeout: sendTimeout,
+      ),
     );
-    return Sale.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> getWebkassaHealth({
+    Duration? receiveTimeout,
+    Duration? sendTimeout,
+  }) async {
+    final response = await _apiClient.dio.get(
+      'api/webkassa/health',
+      options: Options(
+        receiveTimeout: receiveTimeout,
+        sendTimeout: sendTimeout,
+      ),
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<WebkassaCashbox>> getWebkassaCashboxes() async {
+    final response = await _apiClient.dio.get('api/webkassa/cashboxes');
+    final list = response.data as List<dynamic>;
+    return list
+        .map((e) => WebkassaCashbox.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> refreshWebkassaSession() async {
+    final response = await _apiClient.dio.post('api/webkassa/session/refresh');
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<Sale> updateSale(int id, {
     int? cashierId,
     int? shiftId,
     int? shopperId,
+    int? counterpartyId,
+    bool? isOnCredit,
     List<Map<String, dynamic>>? items,
   }) async {
     final data = <String, dynamic>{};
     if (cashierId != null) data['cashier_id'] = cashierId;
     if (shiftId != null) data['shift_id'] = shiftId;
     if (shopperId != null) data['shopper_id'] = shopperId;
+    if (counterpartyId != null) data['counterparty_id'] = counterpartyId;
+    if (isOnCredit != null) data['is_on_credit'] = isOnCredit;
     if (items != null) data['items'] = items;
 
     final response = await _apiClient.dio.patch(
@@ -570,9 +764,28 @@ class ApiService {
     await _apiClient.dio.post('api/returns', data: data);
   }
 
-  Future<Sale> returnSale(int id) async {
-    final response = await _apiClient.dio.post('api/sales/$id/return');
-    return Sale.fromJson(response.data as Map<String, dynamic>);
+  Future<SaleReturnResult> returnSale(
+    int id, {
+    List<Map<String, dynamic>>? items,
+  }) async {
+    final data = <String, dynamic>{};
+    if (items != null && items.isNotEmpty) {
+      data['items'] = items;
+    }
+    try {
+      final response = await _apiClient.dio.post(
+        'api/sales/$id/return',
+        data: data.isEmpty ? null : data,
+      );
+      return SaleReturnResult.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on DioException catch (e) {
+      if (e.response != null) {
+        throw ApiWebkassaException.fromDio(e);
+      }
+      rethrow;
+    }
   }
 
   // Counterparties

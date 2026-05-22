@@ -211,11 +211,11 @@ class _DebtorsScreenState extends State<DebtorsScreen> {
                                                     paymentDate: result.paymentDate,
                                                     notes: result.notes,
                                                   );
-                                                  if (!mounted) return;
+                                                  if (!context.mounted) return;
                                                   showToast(context, 'Оплачено ${result.amount.toStringAsFixed(2)} ₸. Долги обновлены.');
                                                   _load();
                                                 } catch (e) {
-                                                  if (!mounted) return;
+                                                  if (!context.mounted) return;
                                                   showToast(context, 'Ошибка: $e');
                                                 } finally {
                                                   if (mounted) setState(() => _payingDebtCounterpartyId = null);

@@ -69,12 +69,10 @@ class ProductSet {
     if (metaRaw is Map<String, dynamic>) {
       meta = metaRaw;
     } else if (metaRaw is Map) {
-      meta = Map<String, dynamic>.from(metaRaw as Map);
+      meta = Map<String, dynamic>.from(metaRaw);
     }
     final imagesRaw = json['images'] as List<dynamic>?;
-    final images = imagesRaw != null
-        ? imagesRaw.map((e) => e.toString()).toList()
-        : null;
+    final images = imagesRaw?.map((e) => e.toString()).toList();
 
     return ProductSet(
       id: json['id'] as int,

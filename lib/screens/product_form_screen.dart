@@ -369,7 +369,8 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 const SizedBox(height: 16),
               ],
               DropdownButtonFormField<int?>(
-                value: _selectedCategoryId,
+                key: ValueKey(_selectedCategoryId),
+                initialValue: _selectedCategoryId,
                 decoration: const InputDecoration(labelText: 'Категория'),
                 items: [
                   const DropdownMenuItem(
@@ -395,7 +396,8 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedUnit,
+                key: ValueKey(_selectedUnit),
+                initialValue: _selectedUnit,
                 decoration: const InputDecoration(labelText: 'Единица'),
                 items: _units
                     .map(
@@ -494,7 +496,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                             child: Image.network(
                               path.startsWith('http') ? path : _imageUrl(path),
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Icon(Icons.broken_image, color: AppColors.muted),
+                              errorBuilder: (_, _, _) => Icon(Icons.broken_image, color: AppColors.muted),
                             ),
                           ),
                           Positioned(

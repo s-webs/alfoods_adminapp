@@ -209,7 +209,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       ? Image.network(
                           widget.apiService.fileUrl(previewPath),
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) =>
+                          errorBuilder: (_, _, _) =>
                               _buildNoPhotoPlaceholder(),
                         )
                       : _buildNoPhotoPlaceholder(),

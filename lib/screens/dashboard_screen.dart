@@ -52,7 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
     try {
       final shifts = await widget.apiService.getShifts();
-      final sales = await widget.apiService.getSales();
+      final sales = await widget.apiService.getSalesList();
       if (!mounted) return;
       setState(() {
         _shifts = shifts;

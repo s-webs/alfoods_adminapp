@@ -182,7 +182,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     SizedBox(
                       width: 140,
                       child: DropdownButtonFormField<String>(
-                        value: _statusFilter,
+                        key: ValueKey(_statusFilter),
+                        initialValue: _statusFilter,
                         isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Статус',

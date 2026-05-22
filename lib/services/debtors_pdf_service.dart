@@ -213,7 +213,7 @@ class DebtorsPdfService {
                     pw.SizedBox(height: 20),
                   ],
                 );
-              }).toList(),
+              }),
             ],
           );
         },

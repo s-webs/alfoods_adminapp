@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/widgets.dart' as pw;

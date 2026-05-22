@@ -9,6 +9,7 @@ import 'package:alfoods_adminapp/app.dart';
 import 'package:alfoods_adminapp/core/api_client.dart';
 import 'package:alfoods_adminapp/core/storage.dart';
 import 'package:alfoods_adminapp/services/api_service.dart';
+import 'package:alfoods_adminapp/services/notification_service.dart';
 import 'package:alfoods_adminapp/services/realtime_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,11 +24,13 @@ void main() {
     final apiClient = ApiClient(storage);
     final apiService = ApiService(storage, apiClient);
     final realtimeService = RealtimeService(storage);
+    final notificationService = NotificationService();
 
     await tester.pumpWidget(App(
       storage: storage,
       apiService: apiService,
       realtimeService: realtimeService,
+      notificationService: notificationService,
     ));
 
     // Initial route is /login — verify login screen is shown

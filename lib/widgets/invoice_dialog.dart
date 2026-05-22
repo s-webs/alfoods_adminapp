@@ -1,8 +1,4 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:printing/printing.dart';
-
 import '../core/storage.dart';
 import '../core/theme.dart';
 import '../models/cart_item.dart';
@@ -260,74 +256,6 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
     if (mounted) setState(() => _isGenerating = false);
   }
 
-  Future<void> _printPdf() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _isGenerating = true;
-      _error = null;
-    });
-    try {
-      final invoiceData = InvoiceData(
-        senderName: _senderNameController.text.trim(),
-        senderIinBin: _senderIinController.text.trim(),
-        documentNumber: _documentNumberController.text.trim(),
-        documentDate: _documentDate,
-        receiverName: _receiverNameController.text.trim(),
-        receiverIin: _receiverIinController.text.trim().isEmpty
-            ? null
-            : _receiverIinController.text.trim(),
-        receiverAddress: _receiverAddressController.text.trim().isEmpty
-            ? null
-            : _receiverAddressController.text.trim(),
-        responsiblePerson: _responsibleController.text.trim().isEmpty
-            ? null
-            : _responsibleController.text.trim(),
-        transportOrg: _transportController.text.trim().isEmpty
-            ? null
-            : _transportController.text.trim(),
-        ttnNumber: _ttnNumberController.text.trim().isEmpty
-            ? null
-            : _ttnNumberController.text.trim(),
-        ttnDate: _ttnDateController.text.trim().isEmpty
-            ? null
-            : _ttnDateController.text.trim(),
-        approvedBy: _approvedByController.text.trim().isEmpty
-            ? null
-            : _approvedByController.text.trim(),
-        warrantNumber: _warrantNumberController.text.trim().isEmpty
-            ? null
-            : _warrantNumberController.text.trim(),
-        warrantIssuedBy: _warrantIssuedByController.text.trim().isEmpty
-            ? null
-            : _warrantIssuedByController.text.trim(),
-        chiefAccountant: _chiefAccountantController.text.trim().isEmpty
-            ? null
-            : _chiefAccountantController.text.trim(),
-        releasedBy: _releasedByController.text.trim().isEmpty
-            ? null
-            : _releasedByController.text.trim(),
-        items: widget.items
-            .map((e) => InvoiceLineItem.fromCartItem(e))
-            .toList(),
-      );
-      final pdfBytes = await InvoicePdfService.buildPdf(invoiceData);
-      if (!mounted) return;
-      await Printing.layoutPdf(
-        onLayout: (format) async => pdfBytes,
-      );
-      if (mounted) {
-        showToast(context, 'Открыт диалог печати');
-        Navigator.of(context).pop();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isGenerating = false);
-        showToast(context, 'Ошибка печати: $e');
-      }
-    }
-    if (mounted) setState(() => _isGenerating = false);
-  }
-
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -440,7 +368,8 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
                   )
                 else
                   DropdownButtonFormField<Counterparty?>(
-                    value: _selectedCounterparty,
+                    key: ValueKey(_selectedCounterparty),
+                    initialValue: _selectedCounterparty,
                     decoration: const InputDecoration(
                       labelText: 'Контрагент (выберите для автозаполнения)',
                       border: OutlineInputBorder(),
@@ -621,22 +550,6 @@ class _InvoiceDialogState extends State<_InvoiceDialog> {
           onPressed: _isGenerating ? null : () => Navigator.of(context).pop(),
           child: const Text('Отмена'),
         ),
-        if (Platform.isWindows)
-          FilledButton.icon(
-            onPressed: _isGenerating ? null : _printPdf,
-            icon: _isGenerating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.print, size: 20),
-            label: const Text('Печать'),
-          ),
-        const SizedBox(width: 8),
         FilledButton.icon(
           onPressed: _isGenerating ? null : _generateAndSave,
           icon: _isGenerating

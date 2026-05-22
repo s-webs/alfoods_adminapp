@@ -300,7 +300,7 @@ class _ProductReceiptDetailScreenState
               child: Image.network(
                 widget.apiService.fileUrl(path),
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Center(
+                errorBuilder: (_, _, _) => const Center(
                   child: Text(
                     'Не удалось загрузить изображение',
                     style: TextStyle(color: Colors.white),
@@ -380,7 +380,8 @@ class _ProductReceiptDetailScreenState
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<int?>(
-                  value: _selectedSupplierId,
+                  key: ValueKey(_selectedSupplierId),
+                  initialValue: _selectedSupplierId,
                   decoration: const InputDecoration(
                     labelText: 'Поставщик',
                     border: OutlineInputBorder(),

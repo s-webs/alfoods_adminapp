@@ -1,7 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/storage.dart';
 import '../core/theme.dart';
@@ -12,13 +11,16 @@ import '../models/product_set.dart';
 import '../models/sale.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
+import '../services/api_webkassa_exception.dart';
+import '../utils/webkassa_error_display.dart';
+import '../widgets/fiscal_receipt_dialog.dart';
+import '../widgets/sale_payment_chip.dart';
 import '../models/counterparty.dart';
 import '../models/debt_payment.dart';
 import '../widgets/add_product_dialog.dart';
 import '../widgets/invoice_dialog.dart';
 import '../widgets/pay_debt_dialog.dart';
 import '../services/receipt_pdf_service.dart';
-import '../services/receipt_printer_service.dart';
 import '../utils/toast.dart';
 import '../widgets/pdf_share_dialog.dart';
 
@@ -371,7 +373,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: unit,
+                          key: ValueKey(unit),
+                          initialValue: unit,
                           decoration: const InputDecoration(
                             labelText: 'Единица',
                             border: OutlineInputBorder(),
@@ -526,6 +529,24 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     }
   }
 
+  Future<void> _openWebkassaTicket(Sale sale) async {
+    final url = sale.ticketPrintUrl ?? sale.ticketUrl;
+    if (url == null || url.isEmpty) {
+      showToast(context, 'Ссылка чека WebKassa недоступна');
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      showToast(context, 'Некорректная ссылка WebKassa');
+      return;
+    }
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    if (!ok) {
+      showToast(context, 'Не удалось открыть чек WebKassa');
+    }
+  }
+
   Future<void> _returnSale() async {
     if (_sale == null) return;
     final confirm = await showDialog<bool>(
@@ -550,72 +571,23 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
     );
     if (confirm != true || !mounted) return;
     try {
-      final updated = await widget.apiService.returnSale(widget.saleId);
+      final result = await widget.apiService.returnSale(widget.saleId);
       if (!mounted) return;
       setState(() {
-        _sale = updated;
+        _sale = result.originalSale;
       });
-      if (mounted) {
-        showToast(context, 'Возврат оформлен');
-      }
+      if (!mounted) return;
+      showToast(context, 'Возврат оформлен');
       context.pop(true);
+    } on ApiWebkassaException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = formatWebkassaError(e));
+      if (e.fiscal != null) {
+        await FiscalReceiptDialog.show(context, fiscal: e.fiscal!);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Не удалось оформить возврат');
-    }
-  }
-
-  Future<void> _printReceipt() async {
-    final printMode = widget.storage.receiptPrintMode;
-    if ((printMode == 'raw' || printMode == 'pdf_direct') &&
-        !Platform.isWindows) {
-      showToast(context, 'RAW и PDF Direct печать доступны только на Windows');
-      return;
-    }
-    if (_items.isEmpty) {
-      showToast(context, 'Нет позиций для печати');
-      return;
-    }
-    final cashiersMatch = _cashiers
-        .where((c) => c.id == _selectedCashierId)
-        .toList();
-    final cashierName = cashiersMatch.isNotEmpty
-        ? cashiersMatch.first.name
-        : '—';
-    try {
-      final dateTime = _sale?.createdAt ?? DateTime.now();
-      final bytes = ReceiptPrinterService.buildReceipt(
-        saleId: widget.saleId,
-        cashierName: cashierName,
-        items: _items,
-        total: _itemsTotal,
-        dateTime: dateTime,
-      );
-      await ReceiptPrinterService.printReceipt(
-        printerName: widget.storage.receiptPrinterName,
-        bytes: bytes,
-        printMode: printMode,
-        saleId: widget.saleId,
-        cashierName: cashierName,
-        items: _items,
-        total: _itemsTotal,
-        dateTime: dateTime,
-      );
-      if (!mounted) return;
-      showToast(
-        context,
-        printMode == 'pdf'
-            ? 'Открыт диалог печати'
-            : printMode == 'pdf_direct'
-            ? 'PDF отправлен на печать'
-            : 'Чек отправлен на печать',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      showToast(
-        context,
-        'Ошибка печати: ${e.toString().replaceFirst('Exception: ', '')}',
-      );
     }
   }
 
@@ -745,6 +717,18 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            SalePaymentChip(sale: sale),
+            if (sale.isOfdSale &&
+                (sale.ticketUrl != null || sale.ticketPrintUrl != null))
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: OutlinedButton.icon(
+                  onPressed: _isSaving ? null : () => _openWebkassaTicket(sale),
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Открыть чек WebKassa'),
+                ),
+              ),
+            const SizedBox(height: 12),
             if (_error != null) ...[
               Container(
                 padding: const EdgeInsets.all(12),
@@ -1187,7 +1171,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
-                value: _selectedCashierId,
+                key: ValueKey(_selectedCashierId),
+                initialValue: _selectedCashierId,
                 decoration: const InputDecoration(labelText: 'Кассир'),
                 items: [
                   const DropdownMenuItem(value: null, child: Text('Не выбран')),
@@ -1199,7 +1184,8 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int?>(
-                value: _selectedShiftId,
+                key: ValueKey(_selectedShiftId),
+                initialValue: _selectedShiftId,
                 decoration: const InputDecoration(labelText: 'Смена'),
                 items: [
                   const DropdownMenuItem(
@@ -1229,16 +1215,6 @@ class _SaleDetailScreenState extends State<SaleDetailScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              if (Platform.isWindows)
-                FilledButton.icon(
-                  onPressed: _items.isEmpty ? null : _printReceipt,
-                  icon: const Icon(Icons.print, size: 20),
-                  label: const Text('Печать чека'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                  ),
-                ),
-              if (Platform.isWindows) const SizedBox(height: 12),
               if (!isReturned && _items.isNotEmpty) ...[
                 OutlinedButton.icon(
                   onPressed: () => showInvoiceDialog(

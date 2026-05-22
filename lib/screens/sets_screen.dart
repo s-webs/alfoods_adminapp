@@ -24,8 +24,8 @@ class _SetsScreenState extends State<SetsScreen> {
   bool _isLoading = true;
   int? _togglingActiveSetId;
   String? _error;
-  _SetsSortKey _sortKey = _SetsSortKey.id;
-  bool _sortAsc = true;
+  final _SetsSortKey _sortKey = _SetsSortKey.id;
+  final bool _sortAsc = true;
 
   @override
   void initState() {

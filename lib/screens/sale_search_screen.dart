@@ -22,75 +22,56 @@ class SaleSearchScreen extends StatefulWidget {
 }
 
 class _SaleSearchScreenState extends State<SaleSearchScreen> {
-  List<Sale> _allSales = [];
   List<Sale> _filteredSales = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   bool _searched = false;
   int? _openingReceiptSaleId;
   String? _error;
   final _saleIdController = TextEditingController();
+  final _webkassaCheckController = TextEditingController();
   DateTime? _dateFrom;
   DateTime? _dateTo;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
   void dispose() {
     _saleIdController.dispose();
+    _webkassaCheckController.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _search() async {
+    final saleIdText = _saleIdController.text.trim();
+    final saleId = saleIdText.isEmpty ? null : int.tryParse(saleIdText);
+    final webkassa = _webkassaCheckController.text.trim();
+
     setState(() {
       _isLoading = true;
       _error = null;
+      _searched = true;
     });
+
     try {
-      final sales = await widget.apiService.getSales();
-      final sorted = List<Sale>.from(sales)..sort((a, b) => b.id.compareTo(a.id));
+      final page = await widget.apiService.searchSales(
+        saleId: saleId,
+        webkassaCheckNumber: webkassa.isEmpty ? null : webkassa,
+        dateFrom: _dateFrom,
+        dateTo: _dateTo,
+        perPage: 100,
+      );
       if (!mounted) return;
       setState(() {
-        _allSales = sorted;
+        _filteredSales = List<Sale>.from(page.data)
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Не удалось загрузить продажи';
+        _error = 'Не удалось найти продажи';
         _isLoading = false;
+        _filteredSales = [];
       });
     }
-  }
-
-  void _search() {
-    final saleIdText = _saleIdController.text.trim();
-    final saleId = saleIdText.isEmpty ? null : int.tryParse(saleIdText);
-
-    var list = List<Sale>.from(_allSales);
-
-    if (saleId != null) {
-      list = list.where((s) => s.id == saleId).toList();
-    }
-
-    if (_dateFrom != null) {
-      final from = DateTime(_dateFrom!.year, _dateFrom!.month, _dateFrom!.day);
-      list = list.where((s) => s.createdAt.isAfter(from) || s.createdAt.isAtSameMomentAs(from)).toList();
-    }
-    if (_dateTo != null) {
-      final to = DateTime(_dateTo!.year, _dateTo!.month, _dateTo!.day, 23, 59, 59);
-      list = list.where((s) => s.createdAt.isBefore(to) || s.createdAt.isAtSameMomentAs(to)).toList();
-    }
-
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-    setState(() {
-      _filteredSales = list;
-      _searched = true;
-    });
   }
 
   String _formatDate(DateTime dt) {
@@ -180,25 +161,7 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
           ),
         ),
         Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.error_outline, size: 48, color: AppColors.danger),
-                          const SizedBox(height: 16),
-                          Text(_error!),
-                          const SizedBox(height: 16),
-                          FilledButton(
-                            onPressed: _load,
-                            child: const Text('Повторить'),
-                          ),
-                        ],
-                      ),
-                    )
-                  : SingleChildScrollView(
+          child: SingleChildScrollView(
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -206,7 +169,7 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
                           TextField(
                             controller: _saleIdController,
                             decoration: const InputDecoration(
-                              labelText: 'Номер чека',
+                              labelText: 'Номер продажи',
                               hintText: 'Необязательно',
                               border: OutlineInputBorder(),
                               prefixIcon: Icon(Icons.receipt_long),
@@ -214,6 +177,20 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
                             keyboardType: TextInputType.number,
                           ),
                           const SizedBox(height: 12),
+                          TextField(
+                            controller: _webkassaCheckController,
+                            decoration: const InputDecoration(
+                              labelText: '№ чека WebKassa',
+                              hintText: 'Необязательно',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.confirmation_number_outlined),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          if (_error != null) ...[
+                            Text(_error!, style: TextStyle(color: AppColors.danger)),
+                            const SizedBox(height: 8),
+                          ],
                           Row(
                             children: [
                               Expanded(
@@ -243,9 +220,18 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
                           ),
                           const SizedBox(height: 16),
                           FilledButton.icon(
-                            onPressed: _search,
-                            icon: const Icon(Icons.search, size: 20),
-                            label: const Text('Искать'),
+                            onPressed: _isLoading ? null : _search,
+                            icon: _isLoading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.search, size: 20),
+                            label: Text(_isLoading ? 'Поиск...' : 'Искать'),
                           ),
                           const SizedBox(height: 24),
                           if (_searched) ...[
@@ -349,7 +335,7 @@ class _SaleSearchScreenState extends State<SaleSearchScreen> {
                                         final result = await context.push<bool>(
                                           '/sales/sale/${sale.id}',
                                         );
-                                        if (result == true && mounted) _load();
+                                        if (result == true && mounted) _search();
                                       },
                                     ),
                                   );

@@ -169,7 +169,7 @@ class ReceiptPdfService {
                         ),
                       ],
                     );
-                  }).toList(),
+                  }),
                 ],
               ),
               pw.SizedBox(height: 6),

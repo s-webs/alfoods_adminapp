@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 /// Загрузка шрифта Arial с Windows (fallback, если нет asset).
