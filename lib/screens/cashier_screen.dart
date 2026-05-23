@@ -5,15 +5,16 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../core/storage.dart';
 import '../core/theme.dart';
 import '../models/cart_item.dart';
-import '../models/fiscal_receipt.dart';
 import '../models/product.dart';
 import '../models/product_set.dart';
+import '../models/sale_create_result.dart';
 import '../models/sale_payment_method.dart';
 import '../models/shift.dart';
 import '../services/api_service.dart';
 import '../services/api_webkassa_exception.dart';
 import '../services/cashier_resolver_service.dart';
 import '../services/checkout_service.dart';
+import '../services/receipt_pdf_service.dart';
 import '../state/cashier_state.dart';
 import '../utils/toast.dart';
 import '../utils/webkassa_error_display.dart';
@@ -22,6 +23,8 @@ import '../widgets/credit_sale_dialog.dart';
 import '../widgets/fiscal_receipt_dialog.dart';
 import '../widgets/mixed_payment_dialog.dart';
 import '../widgets/pos_payment_method_dialog.dart';
+import '../widgets/receipt_qr_dialog.dart';
+import '../widgets/static_qr_payment_dialog.dart';
 import '../widgets/z_report_dialog.dart';
 import 'barcode_scanner_screen.dart';
 
@@ -569,25 +572,92 @@ class _CashierScreenState extends State<CashierScreen> {
     return true;
   }
 
-  void _showFiscalSuccess(FiscalReceipt? fiscal) {
+  Future<void> _showOfdReceiptQr(SaleCreateResult result) async {
     if (!mounted) return;
-    if (fiscal == null) {
+    final url = result.fiscal?.ticketUrl ?? result.sale.ticketUrl;
+    if (url == null || url.isEmpty) {
       showToast(context, 'Продажа оформлена');
       return;
     }
-    final check = fiscal.checkNumber;
-    showToast(
+    await ReceiptQrDialog.show(
       context,
-      check != null && check.isNotEmpty
-          ? 'Продажа оформлена · чек $check'
-          : 'Продажа оформлена',
+      url: url,
+      title: 'Чек WebKassa',
+      hint: 'Отсканируйте QR для открытия фискального чека',
     );
+  }
+
+  Future<String> _cashierDisplayName() async {
+    if (_resolvedCashierId == null) return 'Касса';
+    try {
+      final cashiers = await widget.apiService.getCashiers();
+      for (final c in cashiers) {
+        if (c.id == _resolvedCashierId) return c.name;
+      }
+    } catch (_) {}
+    return 'Касса';
+  }
+
+  Future<void> _showInternalReceiptQr({
+    required int saleId,
+    required List<CartItem> items,
+    required double total,
+  }) async {
+    if (!mounted) return;
+    try {
+      final cashierName = await _cashierDisplayName();
+      final pdfBytes = await ReceiptPdfService.buildReceiptPdf(
+        saleId: saleId,
+        cashierName: cashierName,
+        items: items,
+        total: total,
+        dateTime: DateTime.now(),
+      );
+      final upload = await widget.apiService.uploadPdf(
+        pdfBytes,
+        'chek-$saleId.pdf',
+      );
+      if (!mounted) return;
+      await ReceiptQrDialog.show(
+        context,
+        url: upload.url,
+        title: 'Товарный чек',
+        hint: 'Отсканируйте QR для открытия товарного чека',
+      );
+    } catch (_) {
+      if (mounted) {
+        showToast(context, 'Продажа #$saleId оформлена');
+      }
+    }
+  }
+
+  Future<bool> _confirmStaticQrPayments(
+    List<({SalePaymentMethod method, double amount})> lines,
+  ) async {
+    for (final line in lines) {
+      if (!line.method.isStaticQrPayment) continue;
+      final ok = await StaticQrPaymentDialog.show(
+        context,
+        method: line.method,
+        amount: line.amount,
+      );
+      if (!ok || !mounted) return false;
+    }
+    return true;
   }
 
   Future<void> _openPosPayment() async {
     if (!_validateCheckoutPreconditions(requireCashier: true)) return;
     final method = await PosPaymentMethodDialog.show(context);
     if (method == null || !mounted) return;
+    if (method.isStaticQrPayment) {
+      final ok = await StaticQrPaymentDialog.show(
+        context,
+        method: method,
+        amount: _cashierState.cartTotal,
+      );
+      if (!ok || !mounted) return;
+    }
     final customerXin = _readCustomerXinForCheckout();
     if (customerXin == _invalidCustomerXin) return;
     await _checkoutOfdDirect(method, customerXin: customerXin);
@@ -611,20 +681,17 @@ class _CashierScreenState extends State<CashierScreen> {
         customerXin: customerXin,
       );
       if (!mounted) return;
-      _showFiscalSuccess(result.fiscal);
       _clearFiscalCheckoutFields();
       _cashierState.clearCart();
-      setState(() => _isPosPaying = false);
+      await _showOfdReceiptQr(result);
     } on ApiWebkassaException catch (e) {
       if (!mounted) return;
       await _showWebkassaCheckoutError(e);
-      setState(() => _isPosPaying = false);
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _error = 'Не удалось оформить продажу';
-        _isPosPaying = false;
-      });
+      setState(() => _error = 'Не удалось оформить продажу');
+    } finally {
+      if (mounted) setState(() => _isPosPaying = false);
     }
   }
 
@@ -635,6 +702,14 @@ class _CashierScreenState extends State<CashierScreen> {
       totalAmount: _cashierState.cartTotal,
     );
     if (splits == null || !mounted) return;
+    final qrLines = splits
+        .where((s) => s.method.isStaticQrPayment)
+        .map((s) => (method: s.method, amount: s.amount))
+        .toList();
+    if (qrLines.isNotEmpty) {
+      final confirmed = await _confirmStaticQrPayments(qrLines);
+      if (!confirmed || !mounted) return;
+    }
     final customerXin = _readCustomerXinForCheckout();
     if (customerXin == _invalidCustomerXin) return;
     final shift = _currentOpenShift!;
@@ -651,20 +726,17 @@ class _CashierScreenState extends State<CashierScreen> {
         customerXin: customerXin,
       );
       if (!mounted) return;
-      _showFiscalSuccess(result.fiscal);
       _clearFiscalCheckoutFields();
       _cashierState.clearCart();
-      setState(() => _isPosPaying = false);
+      await _showOfdReceiptQr(result);
     } on ApiWebkassaException catch (e) {
       if (!mounted) return;
       await _showWebkassaCheckoutError(e);
-      setState(() => _isPosPaying = false);
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _error = 'Не удалось оформить смешанную оплату';
-        _isPosPaying = false;
-      });
+      setState(() => _error = 'Не удалось оформить смешанную оплату');
+    } finally {
+      if (mounted) setState(() => _isPosPaying = false);
     }
   }
 
@@ -680,7 +752,9 @@ class _CashierScreenState extends State<CashierScreen> {
       _isSelling = method != SalePaymentMethod.payment;
       _error = null;
     });
-    final items = _cashierState.cart.map((c) => c.toJson()).toList();
+    final cartItems = List<CartItem>.from(_cashierState.cart);
+    final cartTotal = _cashierState.cartTotal;
+    final items = cartItems.map((c) => c.toJson()).toList();
     try {
       final result = await _checkoutService.finalizeNonOfdSale(
         cashierId: _resolvedCashierId,
@@ -689,24 +763,31 @@ class _CashierScreenState extends State<CashierScreen> {
         paymentMethod: method,
       );
       if (!mounted) return;
-      showToast(context, 'Продажа #${result.sale.id} оформлена');
       _clearFiscalCheckoutFields();
       _cashierState.clearCart();
-      setState(() {
-        _isPaying = false;
-        _isSelling = false;
-      });
+      if (method == SalePaymentMethod.payment) {
+        await _showInternalReceiptQr(
+          saleId: result.sale.id,
+          items: cartItems,
+          total: cartTotal,
+        );
+      } else {
+        showToast(context, 'Продажа #${result.sale.id} оформлена');
+      }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = 'Не удалось оформить продажу';
-        _isPaying = false;
-        _isSelling = false;
-      });
+      setState(() => _error = 'Не удалось оформить продажу');
       showToast(
         context,
         'Ошибка: ${e.toString().replaceFirst('Exception: ', '')}',
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPaying = false;
+          _isSelling = false;
+        });
+      }
     }
   }
 
@@ -816,8 +897,8 @@ class _CashierScreenState extends State<CashierScreen> {
     return OutlinedButton.styleFrom(
       foregroundColor: fg,
       side: BorderSide(color: fg.withValues(alpha: 0.6)),
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-      minimumSize: const Size(0, 40),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      minimumSize: const Size(0, 38),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       visualDensity: VisualDensity.compact,
       shape: const RoundedRectangleBorder(borderRadius: _checkoutBtnRadius),
@@ -836,26 +917,105 @@ class _CashierScreenState extends State<CashierScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18),
-          const SizedBox(height: 2),
+          Icon(icon, size: 22),
+          const SizedBox(height: 1),
           Text(
             label,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildResetCartButton({required bool enabled}) {
+    return Tooltip(
+      message: 'Сброс',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: enabled ? _resetCart : null,
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: AppColors.danger.withValues(
+                  alpha: enabled ? 0.6 : 0.25,
+                ),
+              ),
+            ),
+            alignment: Alignment.center,
+            child: _isResetting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    Icons.clear_all,
+                    size: 20,
+                    color: enabled
+                        ? AppColors.danger
+                        : AppColors.danger.withValues(alpha: 0.35),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _compactSellBtn({required VoidCallback? onPressed}) {
+    return FilledButton(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF43A047),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        minimumSize: const Size(0, 38),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        shape: const RoundedRectangleBorder(borderRadius: _checkoutBtnRadius),
+      ),
+      child: _isPaying
+          ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shopping_cart_checkout, size: 22),
+                SizedBox(height: 1),
+                Text(
+                  'Продать',
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+    );
+  }
+
   Widget _buildCheckoutActions() {
     final cartNotEmpty = _cashierState.cart.isNotEmpty;
     final shiftOpen = _currentOpenShift != null;
-    final isBusy = _isSelling || _isPosPaying || _isPaying;
-    final isPosCheckoutEnabled = cartNotEmpty && shiftOpen && !isBusy;
-    final isNonOfdCheckoutEnabled = cartNotEmpty && shiftOpen && !_isPaying;
-    final isCreditSaleEnabled = cartNotEmpty && shiftOpen && !_isSelling;
+    final isCheckoutBlocking = _isSelling || _isPosPaying || _isPaying;
+    final isPosCheckoutEnabled = cartNotEmpty && shiftOpen && !isCheckoutBlocking;
+    final isNonOfdCheckoutEnabled =
+        cartNotEmpty && shiftOpen && !isCheckoutBlocking;
+    final isCreditSaleEnabled =
+        cartNotEmpty && shiftOpen && !isCheckoutBlocking;
     final totalQty = _cashierState.cart.fold<double>(
       0,
       (sum, item) => sum + item.quantity,
@@ -892,23 +1052,8 @@ class _CashierScreenState extends State<CashierScreen> {
                 ],
               ),
             ),
-            IconButton(
-              onPressed: cartNotEmpty && !_isResetting ? _resetCart : null,
-              tooltip: 'Очистить',
-              visualDensity: VisualDensity.compact,
-              iconSize: 20,
-              style: IconButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                minimumSize: const Size(36, 36),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              icon: _isResetting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.delete_outline),
+            _buildResetCartButton(
+              enabled: cartNotEmpty && !_isResetting && !isCheckoutBlocking,
             ),
           ],
         ),
@@ -923,75 +1068,37 @@ class _CashierScreenState extends State<CashierScreen> {
             ),
           ),
         ],
-        if (_isPosPaying) ...[
-          const SizedBox(height: 4),
-          const LinearProgressIndicator(minHeight: 2),
-        ],
-        const SizedBox(height: 6),
-        Row(
+        const SizedBox(height: 4),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 4,
+          crossAxisSpacing: 6,
+          childAspectRatio: 2.35,
           children: [
-            Expanded(
-              child: _compactOutlinedBtn(
-                onPressed: isPosCheckoutEnabled ? _openPosPayment : null,
-                icon: Icons.point_of_sale,
-                label: 'POS',
-                color: AppColors.primary,
-              ),
+            _compactOutlinedBtn(
+              onPressed: isPosCheckoutEnabled ? _openPosPayment : null,
+              icon: Icons.point_of_sale,
+              label: 'POS Оплата',
+              color: AppColors.primary,
             ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _compactOutlinedBtn(
-                onPressed: isPosCheckoutEnabled ? _openMixedPayment : null,
-                icon: Icons.account_balance_wallet_outlined,
-                label: 'Смеш.',
-                color: AppColors.primary,
-              ),
+            _compactOutlinedBtn(
+              onPressed: isPosCheckoutEnabled ? _openMixedPayment : null,
+              icon: Icons.account_balance_wallet_outlined,
+              label: 'Смешанная оплата',
+              color: AppColors.primary,
             ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _compactOutlinedBtn(
-                onPressed: isCreditSaleEnabled ? _sellOnCredit : null,
-                icon: Icons.credit_card,
-                label: 'Долг',
-                color: AppColors.danger,
-              ),
+            _compactOutlinedBtn(
+              onPressed: isCreditSaleEnabled ? _sellOnCredit : null,
+              icon: Icons.credit_card,
+              label: 'В долг',
+              color: AppColors.danger,
+            ),
+            _compactSellBtn(
+              onPressed: isNonOfdCheckoutEnabled ? _payWithoutOfd : null,
             ),
           ],
-        ),
-        const SizedBox(height: 6),
-        FilledButton(
-          onPressed: isNonOfdCheckoutEnabled ? _payWithoutOfd : null,
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF43A047),
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            shape: const RoundedRectangleBorder(borderRadius: _checkoutBtnRadius),
-          ),
-          child: _isPaying
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.shopping_cart_checkout, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Продать',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
         ),
       ],
     );
@@ -1222,7 +1329,7 @@ class _CashierScreenState extends State<CashierScreen> {
                 ),
         ),
         Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
           decoration: BoxDecoration(
             color: Colors.white,
             boxShadow: [
@@ -1235,13 +1342,48 @@ class _CashierScreenState extends State<CashierScreen> {
           ),
           child: SafeArea(
             top: false,
-            minimum: const EdgeInsets.only(bottom: 4),
+            minimum: EdgeInsets.zero,
             child: _buildCheckoutActions(),
           ),
         ),
       ],
     ),
-  ],
+        if (_isPosPaying || _isPaying)
+          Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black.withValues(alpha: 0.35),
+              child: Center(
+                child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 24,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(strokeWidth: 3),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _isPaying
+                              ? 'Подготовка чека…'
+                              : 'Оформление продажи…',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -84,7 +84,6 @@ class _AddProductDialogState extends State<AddProductDialog>
       final result = await widget.apiService.getProductsPaginated(
         page: reset ? 1 : _productPage,
         perPage: _perPage,
-        active: true,
         search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
       );
       if (!mounted) return;
@@ -103,7 +102,6 @@ class _AddProductDialogState extends State<AddProductDialog>
       final result = await widget.apiService.getProductsPaginated(
         page: _productPage + 1,
         perPage: _perPage,
-        active: true,
         search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
       );
       if (!mounted) return;
@@ -125,11 +123,10 @@ class _AddProductDialogState extends State<AddProductDialog>
     });
     try {
       final results = await Future.wait([
-        widget.apiService.getSets(active: true),
+        widget.apiService.getSets(),
         widget.apiService.getProductsPaginated(
           page: 1,
           perPage: _perPage,
-          active: true,
           search: _searchQuery.trim().isEmpty ? null : _searchQuery.trim(),
         ),
       ]);

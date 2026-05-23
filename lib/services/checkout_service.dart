@@ -9,6 +9,22 @@ class CheckoutService {
 
   final ApiService _apiService;
 
+  static double _itemsTotal(List<Map<String, dynamic>> items) {
+    var total = 0.0;
+    for (final item in items) {
+      final price = item['price'];
+      final qty = item['quantity'];
+      final p = price is num
+          ? price.toDouble()
+          : double.tryParse(price?.toString() ?? '') ?? 0;
+      final q = qty is num
+          ? qty.toDouble()
+          : double.tryParse(qty?.toString() ?? '') ?? 0;
+      total += p * q;
+    }
+    return total;
+  }
+
   Future<SaleCreateResult> finalizeOfdSale({
     required int cashierId,
     required int shiftId,
@@ -21,11 +37,14 @@ class CheckoutService {
     await _deleteDraftIfAny(draftSaleId);
 
     try {
+      final total = _itemsTotal(items);
       return await _apiService.createSale(
         cashierId: cashierId,
         shiftId: shiftId,
         items: items,
         paymentMethod: paymentMethod,
+        fiscalize: paymentMethod.requiresFiscalization,
+        payments: paymentMethod.checkoutApiMethod.webkassaPaymentsForTotal(total),
         customerXin: customerXin,
         externalCheckNumber: externalCheckNumber,
       );
@@ -51,6 +70,7 @@ class CheckoutService {
         shiftId: shiftId,
         items: items,
         paymentMethod: SalePaymentMethod.mixedOfd,
+        fiscalize: true,
         paymentSplits: paymentSplits.map((s) => s.toApiJson()).toList(),
         customerXin: customerXin,
         externalCheckNumber: externalCheckNumber,

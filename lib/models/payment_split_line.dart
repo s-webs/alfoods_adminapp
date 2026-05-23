@@ -11,7 +11,7 @@ class PaymentSplitLine {
   double amount;
 
   Map<String, dynamic> toApiJson() => {
-        'method': method.apiValue,
+        'method': method.checkoutApiMethod.apiValue,
         'sum': amount,
       };
 }

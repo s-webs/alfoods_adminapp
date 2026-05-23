@@ -476,7 +476,7 @@ class ApiService {
 
   /// Поиск товара по штрихкоду (для сканера). Возвращает null, если не найден.
   Future<Product?> getProductByBarcode(String barcode) async {
-    final list = await getProducts(active: true, barcode: barcode.trim());
+    final list = await getProducts(barcode: barcode.trim());
     return list.isEmpty ? null : list.first;
   }
 
@@ -504,7 +504,7 @@ class ApiService {
 
   /// Поиск сета по штрихкоду. Возвращает null, если не найден.
   Future<ProductSet?> getSetByBarcode(String barcode) async {
-    final list = await getSets(active: true, barcode: barcode.trim());
+    final list = await getSets(barcode: barcode.trim());
     return list.isEmpty ? null : list.first;
   }
 
@@ -581,6 +581,32 @@ class ApiService {
     return all;
   }
 
+  /// Продажи за период для дашборда (через search, без выгрузки всей истории).
+  Future<List<Sale>> getSalesForDashboard({
+    DateTime? dateFrom,
+    DateTime? dateTo,
+    int? shiftId,
+  }) async {
+    if (shiftId == null && (dateFrom == null || dateTo == null)) {
+      return [];
+    }
+    final all = <Sale>[];
+    var page = 1;
+    while (true) {
+      final result = await searchSales(
+        dateFrom: shiftId != null ? null : dateFrom,
+        dateTo: shiftId != null ? null : dateTo,
+        shiftId: shiftId,
+        page: page,
+        perPage: 100,
+      );
+      all.addAll(result.data);
+      if (page >= result.lastPage) break;
+      page++;
+    }
+    return all;
+  }
+
   Future<PaginatedSales> searchSales({
     int? saleId,
     String? webkassaCheckNumber,
@@ -649,7 +675,7 @@ class ApiService {
     };
 
     if (paymentMethod != null) {
-      data['payment_method'] = paymentMethod.apiValue;
+      data['payment_method'] = paymentMethod.checkoutApiMethod.apiValue;
     }
     if (customerXin != null && customerXin.isNotEmpty) {
       data['customer_xin'] = customerXin;
@@ -663,9 +689,13 @@ class ApiService {
     if (customerPhone != null && customerPhone.isNotEmpty) {
       data['customer_phone'] = customerPhone;
     }
-    if (fiscalize) {
+    final shouldFiscalize =
+        fiscalize || (paymentMethod?.requiresFiscalization ?? false);
+    if (shouldFiscalize) {
       data['fiscalize'] = true;
-      data['payments'] = payments ?? [];
+    }
+    if (payments != null && payments.isNotEmpty) {
+      data['payments'] = payments;
     }
     if (paymentSplits != null && paymentSplits.isNotEmpty) {
       data['payment_splits'] = paymentSplits;

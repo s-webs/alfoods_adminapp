@@ -26,10 +26,25 @@ enum DashboardPeriod {
   custom,
 }
 
+class _DashboardSalesBounds {
+  const _DashboardSalesBounds({
+    this.dateFrom,
+    this.dateTo,
+    this.shiftId,
+    this.skipLoad = false,
+  });
+
+  final DateTime? dateFrom;
+  final DateTime? dateTo;
+  final int? shiftId;
+  final bool skipLoad;
+}
+
 class _DashboardScreenState extends State<DashboardScreen> {
   List<Shift> _shifts = [];
   List<Sale> _sales = [];
-  bool _isLoading = true;
+  bool _isLoadingShifts = true;
+  bool _isLoadingSales = false;
   String? _error;
   DashboardPeriod _period = DashboardPeriod.week;
   DateTime? _dateFrom;
@@ -45,55 +60,102 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _load();
   }
 
+  _DashboardSalesBounds _boundsForPeriod() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    switch (_period) {
+      case DashboardPeriod.shift:
+        final open = _openShift;
+        if (open == null) {
+          return const _DashboardSalesBounds(skipLoad: true);
+        }
+        return _DashboardSalesBounds(shiftId: open.id);
+      case DashboardPeriod.week:
+        final weekStart = today.subtract(Duration(days: today.weekday - 1));
+        return _DashboardSalesBounds(dateFrom: weekStart, dateTo: today);
+      case DashboardPeriod.month:
+        return _DashboardSalesBounds(
+          dateFrom: DateTime(now.year, now.month, 1),
+          dateTo: today,
+        );
+      case DashboardPeriod.custom:
+        if (_dateFrom == null || _dateTo == null) {
+          return const _DashboardSalesBounds(skipLoad: true);
+        }
+        return _DashboardSalesBounds(dateFrom: _dateFrom, dateTo: _dateTo);
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
-      _isLoading = true;
+      _isLoadingShifts = true;
       _error = null;
     });
     try {
       final shifts = await widget.apiService.getShifts();
-      final sales = await widget.apiService.getSalesList();
       if (!mounted) return;
       setState(() {
         _shifts = shifts;
-        _sales = sales;
-        _isLoading = false;
+        _isLoadingShifts = false;
       });
+      await _loadSales();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = 'Не удалось загрузить данные';
-        _isLoading = false;
+        _isLoadingShifts = false;
+        _isLoadingSales = false;
       });
     }
   }
 
-  List<Sale> get _filteredSales {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final openShift = _openShift;
+  Future<void> _loadSales() async {
+    final bounds = _boundsForPeriod();
+    if (bounds.skipLoad) {
+      if (!mounted) return;
+      setState(() {
+        _sales = [];
+        _isLoadingSales = false;
+      });
+      return;
+    }
 
-    return _sales.where((s) {
-      if (s.isReturned) return false;
-      switch (_period) {
-        case DashboardPeriod.shift:
-          if (openShift == null) return false;
-          return s.shiftId == openShift.id;
-        case DashboardPeriod.week:
-          final weekStart = today.subtract(Duration(days: today.weekday - 1));
-          final weekEnd = weekStart.add(const Duration(days: 6, hours: 23, minutes: 59));
-          final saleDate = s.createdAt;
-          return !saleDate.isBefore(weekStart) && !saleDate.isAfter(weekEnd);
-        case DashboardPeriod.month:
-          return s.createdAt.year == now.year && s.createdAt.month == now.month;
-        case DashboardPeriod.custom:
-          if (_dateFrom == null || _dateTo == null) return false;
-          final start = DateTime(_dateFrom!.year, _dateFrom!.month, _dateFrom!.day);
-          final end = DateTime(_dateTo!.year, _dateTo!.month, _dateTo!.day, 23, 59, 59);
-          return !s.createdAt.isBefore(start) && !s.createdAt.isAfter(end);
-      }
-    }).toList();
+    setState(() => _isLoadingSales = true);
+    try {
+      final sales = await widget.apiService.getSalesForDashboard(
+        dateFrom: bounds.dateFrom,
+        dateTo: bounds.dateTo,
+        shiftId: bounds.shiftId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _sales = sales;
+        _isLoadingSales = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Не удалось загрузить продажи';
+        _isLoadingSales = false;
+      });
+    }
   }
+
+  void _onPeriodChanged(DashboardPeriod period) {
+    setState(() {
+      _period = period;
+      if (period == DashboardPeriod.custom) {
+        _dateFrom ??= DateTime.now();
+        _dateTo ??= DateTime.now();
+      }
+      _error = null;
+    });
+    _loadSales();
+  }
+
+  List<Sale> get _filteredSales =>
+      _sales.where((s) => !s.isReturned).toList();
 
   double get _totalAmount => _filteredSales.fold(0.0, (s, e) => s + e.totalPrice);
   double get _totalQuantity => _filteredSales.fold(0.0, (s, e) => s + e.totalQty);
@@ -138,12 +200,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_isLoadingShifts) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
-    if (_error != null) {
+    if (_error != null && _shifts.isEmpty) {
       return Scaffold(
         body: Center(
           child: Column(
@@ -234,29 +296,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   FilterChip(
                     label: const Text('Смена'),
                     selected: _period == DashboardPeriod.shift,
-                    onSelected: (_) =>
-                        setState(() => _period = DashboardPeriod.shift),
+                    onSelected: (_) => _onPeriodChanged(DashboardPeriod.shift),
                   ),
                   FilterChip(
                     label: const Text('Неделя'),
                     selected: _period == DashboardPeriod.week,
-                    onSelected: (_) =>
-                        setState(() => _period = DashboardPeriod.week),
+                    onSelected: (_) => _onPeriodChanged(DashboardPeriod.week),
                   ),
                   FilterChip(
                     label: const Text('Месяц'),
                     selected: _period == DashboardPeriod.month,
-                    onSelected: (_) =>
-                        setState(() => _period = DashboardPeriod.month),
+                    onSelected: (_) => _onPeriodChanged(DashboardPeriod.month),
                   ),
                   FilterChip(
                     label: const Text('Даты'),
                     selected: _period == DashboardPeriod.custom,
-                    onSelected: (_) => setState(() {
-                          _period = DashboardPeriod.custom;
-                          _dateFrom ??= DateTime.now();
-                          _dateTo ??= DateTime.now();
-                        }),
+                    onSelected: (_) => _onPeriodChanged(DashboardPeriod.custom),
                   ),
                 ],
               ),
@@ -275,6 +330,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                           if (d != null && mounted) {
                             setState(() => _dateFrom = d);
+                            _loadSales();
                           }
                         },
                         child: Text(
@@ -296,6 +352,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                           if (d != null && mounted) {
                             setState(() => _dateTo = d);
+                            _loadSales();
                           }
                         },
                         child: Text(
@@ -309,6 +366,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ],
               const SizedBox(height: 24),
+              if (_isLoadingSales)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: LinearProgressIndicator(minHeight: 2),
+                ),
               Row(
                 children: [
                   Expanded(
@@ -336,15 +398,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            Text(
-                              _totalQuantity.toStringAsFixed(0),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineSmall
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                            if (_isLoadingSales)
+                              const SizedBox(
+                                height: 32,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
                                   ),
-                            ),
+                                ),
+                              )
+                            else
+                              Text(
+                                _totalQuantity.toStringAsFixed(0),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
                           ],
                         ),
                       ),
@@ -376,15 +452,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            Text(
-                              _totalAmount.toStringAsFixed(0),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineSmall
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                            if (_isLoadingSales)
+                              const SizedBox(
+                                height: 32,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
                                   ),
-                            ),
+                                ),
+                              )
+                            else
+                              Text(
+                                _totalAmount.toStringAsFixed(0),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
                           ],
                         ),
                       ),
@@ -392,6 +482,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
+              if (_error != null && _shifts.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _error!,
+                  style: TextStyle(color: AppColors.danger, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Center(
+                  child: TextButton(
+                    onPressed: _loadSales,
+                    child: const Text('Повторить загрузку продаж'),
+                  ),
+                ),
+              ],
               if (topProducts.isNotEmpty) ...[
                 const SizedBox(height: 24),
                 Text(
